@@ -33,7 +33,7 @@ object PiCommands {
 
     val INSTALL_PI: String = """
         echo '[VCSpace] Installing Node.js, npm, Git and Pi...'
-        if apk add --update nodejs npm git && npm install -g --ignore-scripts $PACKAGE; then
+        if apk add --no-cache nodejs npm git && npm install -g --ignore-scripts $PACKAGE; then
           mkdir -p /home/.vcspace
           date -u +%FT%TZ > $MARKER
           echo '[VCSpace] Pi installed. Run `pi` or use Open Pi in Terminal.'
@@ -45,7 +45,7 @@ object PiCommands {
 
     val UPDATE_PI: String = """
         echo '[VCSpace] Updating Pi...'
-        if apk add --update nodejs npm git && npm install -g --ignore-scripts $PACKAGE@latest; then
+        if apk add --no-cache nodejs npm git && npm install -g --ignore-scripts $PACKAGE@latest; then
           mkdir -p /home/.vcspace
           date -u +%FT%TZ > $MARKER
           echo '[VCSpace] Pi updated.'
@@ -58,7 +58,7 @@ object PiCommands {
     val REPAIR_PI: String = """
         echo '[VCSpace] Repairing Pi installation...'
         apk fix || true
-        if apk add --update nodejs npm git && (npm cache verify || true) && npm install -g --ignore-scripts --force $PACKAGE@latest; then
+        if apk add --no-cache nodejs npm git && (npm cache verify || true) && npm install -g --ignore-scripts --force $PACKAGE@latest; then
           mkdir -p /home/.vcspace
           date -u +%FT%TZ > $MARKER
           echo '[VCSpace] Pi repair finished.'

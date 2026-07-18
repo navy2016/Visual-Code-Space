@@ -347,6 +347,11 @@ class TerminalActivity : ComponentActivity() {
                 child("etc/hostname").writeText(getString(strings.app_name))
                 child("etc/resolv.conf").also { it.createFileIfNot();it.writeText(nameserver) }
                 child("etc/hosts").writeText(hosts)
+                child("etc/apk/repositories").also {
+                    it.parentFile?.mkdirs()
+                    it.createFileIfNot()
+                    it.writeText(alpineRepositories)
+                }
             }
             onComplete()
         }
@@ -405,8 +410,12 @@ private const val x86_64_packages =
     "https://github.com/itsvks19/vcspace-packages/raw/refs/heads/main/x86_64/usr.tar.gz"
 
 private const val alpine_arm =
-    "https://dl-cdn.alpinelinux.org/alpine/v3.22/releases/armhf/alpine-minirootfs-3.22.1-armhf.tar.gz"
+    "https://mirrors.aliyun.com/alpine/v3.22/releases/armhf/alpine-minirootfs-3.22.1-armhf.tar.gz"
 private const val alpine_aarch64 =
-    "https://dl-cdn.alpinelinux.org/alpine/v3.22/releases/aarch64/alpine-minirootfs-3.22.1-aarch64.tar.gz"
+    "https://mirrors.aliyun.com/alpine/v3.22/releases/aarch64/alpine-minirootfs-3.22.1-aarch64.tar.gz"
 private const val alpine_x86_64 =
-    "https://dl-cdn.alpinelinux.org/alpine/v3.22/releases/x86_64/alpine-minirootfs-3.22.1-x86_64.tar.gz"
+    "https://mirrors.aliyun.com/alpine/v3.22/releases/x86_64/alpine-minirootfs-3.22.1-x86_64.tar.gz"
+
+private const val alpineRepositories =
+    "https://mirrors.aliyun.com/alpine/v3.22/main\n" +
+        "https://mirrors.aliyun.com/alpine/v3.22/community\n"

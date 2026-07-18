@@ -82,6 +82,7 @@ object Session {
                 "PREFIX=${prefix.absolutePath}",
                 "LD_LIBRARY_PATH=${lib.absolutePath}",
                 "ALPINE=${alpineDir.absolutePath}",
+                "APK_REPOSITORY_BASE=https://mirrors.aliyun.com/alpine/v3.22",
                 "LINKER=${Executor.linker}",
                 "VCSPACE_BRIDGE_URL=${activity.terminalBinder?.service?.piBridgeUrl.orEmpty()}",
                 "VCSPACE_BRIDGE_TOKEN=${activity.terminalBinder?.service?.piBridgeToken.orEmpty()}",
