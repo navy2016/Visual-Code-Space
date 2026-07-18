@@ -24,9 +24,47 @@ object PiCommands {
     private val npmHelpers: String = """
         export NPM_CONFIG_REGISTRY="${'$'}{NPM_CONFIG_REGISTRY:-https://registry.npmmirror.com}"
 
-        run_npm() {
+        find_npm_cli() {
           if [ -f "$NPM_CLI" ]; then
-            node "$NPM_CLI" "${'$'}@"
+            echo "$NPM_CLI"
+            return 0
+          fi
+          find /usr/lib /usr/local/lib -path '*/npm-cli.js' -type f 2>/dev/null | head -n 1
+        }
+
+        repair_npm_cli() {
+          if [ -n "${'$'}(find_npm_cli)" ]; then
+            return 0
+          fi
+
+          echo '[VCSpace] npm CLI files are missing; repairing npm package...'
+          apk fix npm >/dev/null 2>&1 || true
+          if [ -n "${'$'}(find_npm_cli)" ]; then
+            return 0
+          fi
+
+          npm_tmp="${'$'}(mktemp -d /tmp/vcspace-npm.XXXXXX)" || return 1
+          if apk fetch -o "${'$'}npm_tmp" npm >/dev/null 2>&1; then
+            npm_apk="${'$'}(find "${'$'}npm_tmp" -name 'npm-*.apk' -type f | head -n 1)"
+            if [ -n "${'$'}npm_apk" ]; then
+              rm -f /usr/bin/npm /usr/bin/npx /usr/bin/node-gyp
+              tar -xzf "${'$'}npm_apk" -C /
+              rm -f /.PKGINFO /.SIGN.*
+            fi
+          fi
+          rm -rf "${'$'}npm_tmp"
+
+          if [ -z "${'$'}(find_npm_cli)" ]; then
+            echo '[VCSpace] npm CLI repair failed.'
+            echo '[VCSpace] Expected npm CLI: $NPM_CLI'
+            return 1
+          fi
+        }
+
+        run_npm() {
+          npm_cli="${'$'}(find_npm_cli)"
+          if [ -n "${'$'}npm_cli" ]; then
+            node "${'$'}npm_cli" "${'$'}@"
           elif command -v npm >/dev/null 2>&1 && npm --version >/dev/null 2>&1; then
             npm "${'$'}@"
           else
@@ -34,6 +72,10 @@ object PiCommands {
             echo '[VCSpace] Expected npm CLI: $NPM_CLI'
             return 1
           fi
+        }
+
+        ensure_npm_ready() {
+          repair_npm_cli && run_npm --version >/dev/null
         }
 
         install_pi_launcher() {
@@ -72,7 +114,7 @@ object PiCommands {
 
         echo '[VCSpace] Installing Node.js, npm, Git and Pi...'
         echo "[VCSpace] npm registry: ${'$'}NPM_CONFIG_REGISTRY"
-        if apk add --no-cache nodejs npm git && run_npm install -g --ignore-scripts $PACKAGE && install_pi_launcher; then
+        if apk add --no-cache nodejs npm git && ensure_npm_ready && run_npm install -g --ignore-scripts $PACKAGE && install_pi_launcher; then
           mkdir -p /home/.vcspace
           date -u +%FT%TZ > $MARKER
           echo '[VCSpace] Pi installed. Run `pi` or use Open Pi in Terminal.'
@@ -87,7 +129,7 @@ object PiCommands {
 
         echo '[VCSpace] Updating Pi...'
         echo "[VCSpace] npm registry: ${'$'}NPM_CONFIG_REGISTRY"
-        if apk add --no-cache nodejs npm git && run_npm install -g --ignore-scripts $PACKAGE@latest && install_pi_launcher; then
+        if apk add --no-cache nodejs npm git && ensure_npm_ready && run_npm install -g --ignore-scripts $PACKAGE@latest && install_pi_launcher; then
           mkdir -p /home/.vcspace
           date -u +%FT%TZ > $MARKER
           echo '[VCSpace] Pi updated.'
@@ -103,7 +145,7 @@ object PiCommands {
         echo '[VCSpace] Repairing Pi installation...'
         echo "[VCSpace] npm registry: ${'$'}NPM_CONFIG_REGISTRY"
         apk fix || true
-        if apk add --no-cache nodejs npm git && (run_npm cache verify || true) && run_npm install -g --ignore-scripts --force $PACKAGE@latest && install_pi_launcher; then
+        if apk add --no-cache nodejs npm git && ensure_npm_ready && (run_npm cache verify || true) && run_npm install -g --ignore-scripts --force $PACKAGE@latest && install_pi_launcher; then
           mkdir -p /home/.vcspace
           date -u +%FT%TZ > $MARKER
           echo '[VCSpace] Pi repair finished.'
