@@ -19,6 +19,7 @@ object PiCommands {
     private const val PACKAGE = "@earendil-works/pi-coding-agent"
     private const val MARKER = "/home/.vcspace/pi-installed"
     private const val NPM_CLI = "/usr/lib/node_modules/npm/bin/npm-cli.js"
+    private const val NPM_TARBALL = "https://registry.npmmirror.com/npm/-/npm-11.6.4.tgz"
     private const val PI_CLI = "/usr/lib/node_modules/@earendil-works/pi-coding-agent/dist/cli.js"
 
     private val npmHelpers: String = """
@@ -32,14 +33,51 @@ object PiCommands {
           find /usr/lib /usr/local/lib -path '*/npm-cli.js' -type f 2>/dev/null | head -n 1
         }
 
+        write_npm_launcher() {
+          if [ -f "$NPM_CLI" ]; then
+            rm -f /usr/bin/npm /usr/bin/npx
+            printf '%s\n' '#!/bin/sh' 'exec node /usr/lib/node_modules/npm/bin/npm-cli.js "${'$'}@"' > /usr/bin/npm
+            printf '%s\n' '#!/bin/sh' 'exec node /usr/lib/node_modules/npm/bin/npx-cli.js "${'$'}@"' > /usr/bin/npx
+            chmod +x /usr/bin/npm /usr/bin/npx
+          fi
+        }
+
+        install_npm_from_registry() {
+          echo '[VCSpace] Installing standalone npm bundle from registry mirror...'
+          npm_tmp="${'$'}(mktemp -d /tmp/vcspace-npm-registry.XXXXXX)" || return 1
+          npm_tgz="${'$'}npm_tmp/npm.tgz"
+          npm_unpack="${'$'}npm_tmp/unpack"
+          mkdir -p "${'$'}npm_unpack"
+
+          if ! wget -q -O "${'$'}npm_tgz" "$NPM_TARBALL"; then
+            echo '[VCSpace] Failed to download standalone npm bundle.'
+            rm -rf "${'$'}npm_tmp"
+            return 1
+          fi
+
+          if ! tar -xzf "${'$'}npm_tgz" -C "${'$'}npm_unpack"; then
+            echo '[VCSpace] Failed to unpack standalone npm bundle.'
+            rm -rf "${'$'}npm_tmp"
+            return 1
+          fi
+
+          rm -rf /usr/lib/node_modules/npm
+          mkdir -p /usr/lib/node_modules
+          mv "${'$'}npm_unpack/package" /usr/lib/node_modules/npm
+          rm -rf "${'$'}npm_tmp"
+          write_npm_launcher
+        }
+
         repair_npm_cli() {
           if [ -n "${'$'}(find_npm_cli)" ]; then
+            write_npm_launcher
             return 0
           fi
 
           echo '[VCSpace] npm CLI files are missing; repairing npm package...'
           apk fix npm >/dev/null 2>&1 || true
           if [ -n "${'$'}(find_npm_cli)" ]; then
+            write_npm_launcher
             return 0
           fi
 
@@ -54,11 +92,19 @@ object PiCommands {
           fi
           rm -rf "${'$'}npm_tmp"
 
-          if [ -z "${'$'}(find_npm_cli)" ]; then
-            echo '[VCSpace] npm CLI repair failed.'
-            echo '[VCSpace] Expected npm CLI: $NPM_CLI'
-            return 1
+          if [ -n "${'$'}(find_npm_cli)" ]; then
+            write_npm_launcher
+            return 0
           fi
+
+          if install_npm_from_registry && [ -n "${'$'}(find_npm_cli)" ]; then
+            write_npm_launcher
+            return 0
+          fi
+
+          echo '[VCSpace] npm CLI repair failed.'
+          echo '[VCSpace] Expected npm CLI: $NPM_CLI'
+          return 1
         }
 
         run_npm() {
