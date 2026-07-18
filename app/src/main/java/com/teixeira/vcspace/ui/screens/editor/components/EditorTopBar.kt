@@ -278,11 +278,12 @@ fun EditorTopBar(
                                             }
                                         }
 
-                                        server = LocalHttpServer(directory)
+                                        val localServer = LocalHttpServer(directory)
+                                        server = localServer
 
                                         runCatching {
-                                            server.start()
-                                            val assignedPort = server.assignedPort
+                                            localServer.start()
+                                            val assignedPort = localServer.assignedPort
                                             ToastUtils.showLong("Server started on http://localhost:$assignedPort")
 
                                             val customTabs = CustomTabsIntent.Builder()
