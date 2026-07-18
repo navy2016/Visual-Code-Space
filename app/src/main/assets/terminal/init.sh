@@ -47,6 +47,9 @@ fi
 if [ "$#" -eq 0 ]; then
     $START_SHELL
 else
-    # shellcheck disable=SC2068
-    $@
+    if [ "$#" -eq 1 ]; then
+        $START_SHELL -lc "$1"
+    else
+        "$@"
+    fi
 fi

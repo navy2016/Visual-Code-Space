@@ -24,6 +24,7 @@ import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 import android.webkit.ConsoleMessage
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import androidx.core.net.toUri
@@ -199,6 +200,12 @@ class MonacoEditor @JvmOverloads constructor(
     fun undo() = editorScope.launch { loadJs("undo();") }
     fun redo() = editorScope.launch { loadJs("redo();") }
 
+    fun getTextAsync(callback: ValueCallback<String>) {
+        loadJs("editor ? editor.getValue() : ''") { value ->
+            callback.onReceiveValue(parseJsString(value))
+        }
+    }
+
     var text
         get() = webInterface.value
         set(text) {
@@ -313,5 +320,12 @@ class MonacoEditor @JvmOverloads constructor(
             return
         }
         loadJs("simulateKeyPress(`$key`);")
+    }
+
+    private fun parseJsString(value: String?): String {
+        if (value == null || value == "null") return ""
+        return runCatching {
+            org.json.JSONArray("[$value]").getString(0)
+        }.getOrElse { value.trim('"') }
     }
 }

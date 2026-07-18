@@ -27,11 +27,15 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.app.NotificationCompat
 import com.teixeira.vcspace.activities.TerminalActivity
+import com.teixeira.vcspace.agent.AgentBridgeServer
+import com.teixeira.vcspace.agent.BuiltInAgentTools
 import com.teixeira.vcspace.app.drawables
 import com.teixeira.vcspace.extensions.makePluralIf
+import com.teixeira.vcspace.pi.PiExtensionInstaller
 import com.teixeira.vcspace.terminal.Session
 import com.termux.terminal.TerminalSession
 import com.termux.terminal.TerminalSessionClient
+import kotlinx.coroutines.runBlocking
 
 // https://github.com/Xed-Editor/Xed-Editor/blob/main/core/main/src/main/java/com/rk/xededitor/service/SessionService.kt
 class TerminalService : Service() {
@@ -42,6 +46,16 @@ class TerminalService : Service() {
     @Suppress("PrivatePropertyName")
     private val ACTION_EXIT by lazy { "com.teixeira.vcspace.action.ACTION_EXIT" }
     private val notificationId = 46536745
+    private var bridgeServer: AgentBridgeServer? = null
+
+    val piBridgeUrl: String?
+        get() = bridgeServer?.bridgeUrl
+
+    val piBridgeToken: String?
+        get() = bridgeServer?.token
+
+    val isPiBridgeActive: Boolean
+        get() = bridgeServer?.isAlive == true
 
     inner class TerminalBinder : Binder() {
         val service
@@ -87,6 +101,7 @@ class TerminalService : Service() {
         createNotificationChannel()
         val notification = createNotification()
         startForeground(notificationId, notification)
+        startPiBridge()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -96,12 +111,45 @@ class TerminalService : Service() {
                 stopSelf()
             }
         }
-        return super.onStartCommand(intent, flags, startId)
+        return START_STICKY
     }
 
     override fun onDestroy() {
         sessions.forEach { session -> session.value.finishIfRunning() }
+        stopPiBridge()
         super.onDestroy()
+    }
+
+    fun ensurePiBridgeStarted() {
+        startPiBridge()
+    }
+
+    @Synchronized
+    private fun startPiBridge() {
+        if (bridgeServer?.isAlive == true) return
+
+        runCatching {
+            runBlocking { BuiltInAgentTools.register(applicationContext) }
+            PiExtensionInstaller.installOrUpdate()
+            AgentBridgeServer(applicationContext).also { server ->
+                server.ensureStarted()
+                bridgeServer = server
+            }
+        }.onSuccess {
+            updateNotification()
+        }.onFailure {
+            it.printStackTrace()
+        }
+    }
+
+    private fun stopPiBridge() {
+        bridgeServer?.let { server ->
+            runCatching {
+                server.closeAllConnections()
+                server.stop()
+            }
+        }
+        bridgeServer = null
     }
 
     private fun createNotification(): Notification {
@@ -153,6 +201,7 @@ class TerminalService : Service() {
 
     private fun getNotificationContentText(): String {
         val count = sessions.size
-        return "$count${" session" makePluralIf (count > 1)} running"
+        val sessionText = "$count${" session" makePluralIf (count > 1)} running"
+        return if (isPiBridgeActive) "$sessionText · Pi bridge active" else sessionText
     }
 }

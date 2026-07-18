@@ -58,6 +58,7 @@ import com.teixeira.vcspace.activities.Editor.LocalEditorDrawerState
 import com.teixeira.vcspace.activities.Editor.LocalEditorSnackbarHostState
 import com.teixeira.vcspace.activities.base.BaseComposeActivity
 import com.teixeira.vcspace.activities.base.ObserveLifecycleEvents
+import com.teixeira.vcspace.agent.AgentEditorBridge
 import com.teixeira.vcspace.app.DoNothing
 import com.teixeira.vcspace.app.MONACO_EDITOR_ARCHIVE
 import com.teixeira.vcspace.app.noLocalProvidedFor
@@ -258,6 +259,11 @@ class EditorActivity : BaseComposeActivity() {
             when (event) {
                 Lifecycle.Event.ON_CREATE -> {
                     onCreate()
+                    AgentEditorBridge.attach(
+                        this@EditorActivity,
+                        editorViewModel,
+                        fileExplorerViewModel
+                    )
                     EventBus.getDefault().register(this@EditorActivity)
                     createNomediaFile(APP_EXTERNAL_DIR)
 
@@ -303,6 +309,7 @@ class EditorActivity : BaseComposeActivity() {
 
                 Lifecycle.Event.ON_DESTROY -> {
                     editorViewModel.rememberLastFiles()
+                    AgentEditorBridge.detach(this@EditorActivity)
                     EventBus.getDefault().unregister(this@EditorActivity)
                     clearCache()
                 }

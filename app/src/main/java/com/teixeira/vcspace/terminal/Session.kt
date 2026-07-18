@@ -25,6 +25,14 @@ import java.io.File
 
 // https://github.com/RohitKushvaha01/ReTerminal/blob/main/app/src/main/java/com/rk/terminal/terminal/MkSession.kt
 object Session {
+    private fun shellQuote(value: String): String = "'${value.replace("'", "'\\''")}'"
+
+    private fun shellWorkingDir(path: String): String = when {
+        path.startsWith("/storage") || path.startsWith("/sdcard") -> path
+        path == home.absolutePath -> "/home"
+        else -> "/home"
+    }
+
     fun createSession(
         activity: TerminalActivity,
         sessionClient: TerminalSessionClient,
@@ -43,7 +51,9 @@ object Session {
                 "EXTERNAL_STORAGE" to System.getenv("EXTERNAL_STORAGE")
             )
 
-            val workingDir = if (intent.hasExtra("cwd")) {
+            val workingDir = if (intent.hasExtra(TerminalActivity.KEY_WORKING_DIRECTORY)) {
+                intent.getStringExtra(TerminalActivity.KEY_WORKING_DIRECTORY).toString()
+            } else if (intent.hasExtra("cwd")) {
                 intent.getStringExtra("cwd").toString()
             } else {
                 home.absolutePath
@@ -69,6 +79,8 @@ object Session {
                 "LD_LIBRARY_PATH=${lib.absolutePath}",
                 "ALPINE=${alpineDir.absolutePath}",
                 "LINKER=${Executor.linker}",
+                "VCSPACE_BRIDGE_URL=${activity.terminalBinder?.service?.piBridgeUrl.orEmpty()}",
+                "VCSPACE_BRIDGE_TOKEN=${activity.terminalBinder?.service?.piBridgeToken.orEmpty()}",
                 "PROOT=${
                     File(filesDir, "proot").apply {
                         if (exists().not()) {
@@ -92,7 +104,15 @@ object Session {
             }
 
             val shell = "/system/bin/sh"
-            val args = arrayOf("-c", initHost.absolutePath)
+            val prootCommand = intent.getStringExtra(TerminalActivity.KEY_PROOT_COMMAND)
+            val prootWorkingDir = shellWorkingDir(workingDir)
+            val command = if (prootCommand.isNullOrBlank()) {
+                "cd ${shellQuote(prootWorkingDir)} && exec /bin/bash"
+            } else {
+                "cd ${shellQuote(prootWorkingDir)} && $prootCommand"
+            }
+            intent.removeExtra(TerminalActivity.KEY_PROOT_COMMAND)
+            val args = arrayOf("-c", "${initHost.absolutePath} ${shellQuote(command)}")
 
             return TerminalSession(
                 shell,

@@ -80,6 +80,7 @@ import com.teixeira.vcspace.extensions.open
 import com.teixeira.vcspace.file.extension
 import com.teixeira.vcspace.file.wrapFile
 import com.teixeira.vcspace.keyboard.model.Command.Companion.newCommand
+import com.teixeira.vcspace.pi.PiCommands
 import com.teixeira.vcspace.preferences.pythonDownloaded
 import com.teixeira.vcspace.resources.R
 import com.teixeira.vcspace.ui.screens.editor.EditorViewModel
@@ -214,7 +215,7 @@ fun EditorTopBar(
         }
     }
 
-    var server: LocalHttpServer? = null
+    var server by remember { mutableStateOf<LocalHttpServer?>(null) }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -385,6 +386,24 @@ fun EditorTopBar(
                 commandPaletteManager.addCommand(
                     newCommand("Terminal", "Ctrl+T") {
                         context.open(TerminalActivity::class.java)
+                    },
+                    newCommand("Open Pi in Terminal", null) {
+                        context.startActivity(
+                            Intent(context, TerminalActivity::class.java).apply {
+                                putExtra(TerminalActivity.KEY_RUN_PI, true)
+                                putExtra(TerminalActivity.KEY_PROOT_COMMAND, PiCommands.OPEN_PI)
+                                editorViewModel.uiState.value.selectedFile?.file?.parent?.let {
+                                    putExtra(TerminalActivity.KEY_WORKING_DIRECTORY, it)
+                                }
+                            }
+                        )
+                    },
+                    newCommand("Install Pi", null) {
+                        context.startActivity(
+                            Intent(context, TerminalActivity::class.java).apply {
+                                putExtra(TerminalActivity.KEY_PROOT_COMMAND, PiCommands.INSTALL_PI)
+                            }
+                        )
                     },
                     newCommand("Search", "Ctrl+K") {
                         selectedEditor?.beginSearchMode()

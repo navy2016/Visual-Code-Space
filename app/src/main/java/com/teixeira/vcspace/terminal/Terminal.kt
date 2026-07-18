@@ -90,10 +90,10 @@ fun Terminal(modifier: Modifier = Modifier, terminalActivity: TerminalActivity) 
     LaunchedEffect(Unit) {
         context.startService(Intent(context, TerminalService::class.java))
 
-        if (terminalActivity.intent.extras?.containsKey(KEY_PYTHON_FILE_PATH) == true
-            && terminalView.get() != null
-        ) {
-            terminalActivity.compilePython(terminalView.get()!!)
+        terminalView.get()?.let { terminal ->
+            if (terminalActivity.intent.extras?.containsKey(KEY_PYTHON_FILE_PATH) == true) {
+                terminalActivity.compilePython(terminal)
+            }
         }
     }
 

@@ -223,6 +223,12 @@ class TerminalActivity : ComponentActivity() {
                 }
             } else {
                 Terminal(terminalActivity = this@TerminalActivity)
+
+                LaunchedEffect(isBound) {
+                    if (isBound && intent.getBooleanExtra(KEY_RUN_PI, false)) {
+                        terminalBinder?.service?.ensurePiBridgeStarted()
+                    }
+                }
             }
         }
     }
@@ -386,6 +392,8 @@ class TerminalActivity : ComponentActivity() {
     companion object {
         const val KEY_WORKING_DIRECTORY = "terminal_workingDirectory"
         const val KEY_PYTHON_FILE_PATH = "terminal_python_file"
+        const val KEY_RUN_PI = "terminal_run_pi"
+        const val KEY_PROOT_COMMAND = "terminal_proot_command"
     }
 }
 
