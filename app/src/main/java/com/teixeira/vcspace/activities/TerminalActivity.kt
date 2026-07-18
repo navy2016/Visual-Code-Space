@@ -51,7 +51,6 @@ import com.blankj.utilcode.util.ToastUtils
 import com.teixeira.vcspace.app.strings
 import com.teixeira.vcspace.extensions.child
 import com.teixeira.vcspace.extensions.createFileIfNot
-import com.teixeira.vcspace.extensions.localDir
 import com.teixeira.vcspace.extensions.tmpDir
 import com.teixeira.vcspace.terminal.Terminal
 import com.teixeira.vcspace.terminal.alpineDir
@@ -68,6 +67,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.util.concurrent.TimeUnit
 
 class TerminalActivity : ComponentActivity() {
     var terminalBinder: TerminalService.TerminalBinder? = null
@@ -149,11 +150,22 @@ class TerminalActivity : ComponentActivity() {
                             arm_packages
                         } else {
                             throw RuntimeException("Unsupported CPU")
-                        }, outputPath = "tmp/usr.tar.gz"
+                        },
+                        outputPath = "tmp/usr.tar.gz",
+                        fallbackUrls = if (abi.contains("x86_64")) {
+                            x86_64_package_fallbacks
+                        } else if (abi.contains("arm64-v8a")) {
+                            aarch64_package_fallbacks
+                        } else if (abi.contains("armeabi-v7a")) {
+                            arm_package_fallbacks
+                        } else {
+                            emptyList()
+                        },
+                        forceDownload = !isTerminalSupportReady()
                     )
                 ).toMutableList()
 
-                if (alpineDir.listFiles().isNullOrEmpty()) {
+                if (!isAlpineReady()) {
                     filesToDownload.add(
                         DownloadFile(
                             url = if (abi.contains("x86_64")) {
@@ -255,8 +267,14 @@ class TerminalActivity : ComponentActivity() {
     }
 
     data class DownloadFile(
-        val url: String, val outputPath: String
-    )
+        val url: String,
+        val outputPath: String,
+        val fallbackUrls: List<String> = emptyList(),
+        val forceDownload: Boolean = false
+    ) {
+        val urls: List<String>
+            get() = listOf(url) + fallbackUrls
+    }
 
     private suspend fun setupEnvironment(
         context: Context,
@@ -276,15 +294,20 @@ class TerminalActivity : ComponentActivity() {
 
                     outputFile.parentFile?.mkdirs()
 
-                    if (!outputFile.exists()) {
-                        outputFile.createNewFile()
+                    if (file.forceDownload) {
+                        outputFile.delete()
+                    }
 
-                        downloadFile(
-                            url = file.url,
+                    if (!outputFile.exists()) {
+                        downloadFileWithFallbacks(
+                            file = file,
                             outputFile = outputFile,
                             onProgress = { downloadedBytes, totalBytes ->
-                                val currentFileProgress =
+                                val currentFileProgress = if (totalBytes > 0) {
                                     downloadedBytes.toFloat() / totalBytes.toFloat()
+                                } else {
+                                    0f
+                                }
                                 totalProgress = (completedFiles + currentFileProgress) / totalFiles
 
                                 runOnUiThread {
@@ -308,7 +331,7 @@ class TerminalActivity : ComponentActivity() {
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                localDir.deleteRecursively()
+                cleanupBrokenTerminalSetup()
                 withContext(Dispatchers.Main) {
                     onError(e)
                 }
@@ -319,29 +342,86 @@ class TerminalActivity : ComponentActivity() {
     private fun extractPackage(onComplete: () -> Unit) {
         val usr = File(tmpDir, "usr.tar.gz")
 
-        if (usr.exists().not() || prefix.listFiles().isNullOrEmpty().not()) {
+        if (isTerminalSupportReady()) {
+            ensureTallocLink()
             onComplete()
             return
         }
 
-        Runtime.getRuntime().exec("tar -xf ${usr.absolutePath} -C $appDataDir").waitFor()
+        if (usr.exists().not()) {
+            throw IllegalStateException("Missing terminal support package: ${usr.absolutePath}")
+        }
+
+        runTarExtract(usr, appDataDir)
         usr.delete()
 
-        val libtallocSo2Path = File(prefix, "lib/libtalloc.so.2").apply {
-            if (exists()) delete()
-        }.toPath()
-        val libtallocSo241Path = File(prefix, "lib/libtalloc.so.2.4.1").toPath()
-        Files.createSymbolicLink(libtallocSo2Path, libtallocSo241Path)
+        ensureTallocLink()
         onComplete()
+    }
+
+    private fun runTarExtract(archive: File, destination: File) {
+        destination.mkdirs()
+        val process = Runtime.getRuntime()
+            .exec(arrayOf("tar", "-xf", archive.absolutePath, "-C", destination.absolutePath))
+        val exitCode = process.waitFor()
+        if (exitCode != 0) {
+            val error = process.errorStream.bufferedReader().use { it.readText() }
+            throw IllegalStateException("Failed to extract ${archive.name}: $error")
+        }
+    }
+
+    private fun isTerminalSupportReady(): Boolean {
+        val libtallocSo2 = File(prefix, "lib/libtalloc.so.2")
+        val libtallocSo241 = File(prefix, "lib/libtalloc.so.2.4.1")
+        return libtallocSo2.exists() || libtallocSo241.exists()
+    }
+
+    private fun isAlpineReady(): Boolean =
+        File(alpineDir, "bin/sh").exists() && File(alpineDir, "etc").exists()
+
+    private fun ensureTallocLink() {
+        val libtallocSo2 = File(prefix, "lib/libtalloc.so.2")
+        val libtallocSo241 = File(prefix, "lib/libtalloc.so.2.4.1")
+
+        if (libtallocSo2.exists()) return
+        if (Files.isSymbolicLink(libtallocSo2.toPath())) {
+            Files.deleteIfExists(libtallocSo2.toPath())
+        }
+        if (!libtallocSo241.exists()) {
+            throw IllegalStateException("Missing required terminal library: ${libtallocSo241.absolutePath}")
+        }
+
+        runCatching {
+            Files.createSymbolicLink(libtallocSo2.toPath(), libtallocSo241.toPath())
+        }.onFailure {
+            Files.copy(
+                libtallocSo241.toPath(),
+                libtallocSo2.toPath(),
+                StandardCopyOption.REPLACE_EXISTING
+            )
+        }
+    }
+
+    private fun cleanupBrokenTerminalSetup() {
+        File(tmpDir, "usr.tar.gz").delete()
+        File(tmpDir, "usr.tar.gz.download").delete()
+        File(tmpDir, "alpine.tar.gz.download").delete()
+        if (!isTerminalSupportReady()) {
+            prefix.deleteRecursively()
+        }
+        if (!isAlpineReady()) {
+            File(tmpDir, "alpine.tar.gz").delete()
+            alpineDir.deleteRecursively()
+        }
     }
 
     private fun makeRootFs(onComplete: () -> Unit) {
         val alpine = File(tmpDir, "alpine.tar.gz")
 
-        if (alpine.exists().not() || alpineDir.listFiles().isNullOrEmpty().not()) {
+        if (isAlpineReady()) {
             onComplete()
-        } else {
-            Runtime.getRuntime().exec("tar -xf ${alpine.absolutePath} -C $alpineDir").waitFor()
+        } else if (alpine.exists()) {
+            runTarExtract(alpine, alpineDir)
             alpine.delete()
             with(alpineDir) {
                 child("etc/hostname").writeText(getString(strings.app_name))
@@ -354,7 +434,31 @@ class TerminalActivity : ComponentActivity() {
                 }
             }
             onComplete()
+        } else {
+            throw IllegalStateException("Missing Alpine rootfs package: ${alpine.absolutePath}")
         }
+    }
+
+    private suspend fun downloadFileWithFallbacks(
+        file: DownloadFile,
+        outputFile: File,
+        onProgress: (downloadedBytes: Long, totalBytes: Long) -> Unit
+    ) {
+        var lastError: Exception? = null
+        file.urls.forEach { url ->
+            runCatching {
+                downloadFile(
+                    url = url,
+                    outputFile = outputFile,
+                    onProgress = onProgress
+                )
+                return
+            }.onFailure { error ->
+                outputFile.delete()
+                lastError = error as? Exception ?: Exception(error)
+            }
+        }
+        throw lastError ?: Exception("Failed to download file: ${file.outputPath}")
     }
 
     private suspend fun downloadFile(
@@ -363,33 +467,60 @@ class TerminalActivity : ComponentActivity() {
         onProgress: (downloadedBytes: Long, totalBytes: Long) -> Unit
     ) {
         withContext(Dispatchers.IO) {
-            val client = OkHttpClient.Builder().build()
+            val client = OkHttpClient.Builder()
+                .connectTimeout(30, TimeUnit.SECONDS)
+                .readTimeout(60, TimeUnit.SECONDS)
+                .build()
             val request = Request.Builder().url(url).build()
+            val tempFile = File(outputFile.parentFile, "${outputFile.name}.download")
 
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) {
-                    throw Exception("Failed to download file: ${response.code}")
-                }
+            tempFile.delete()
+            tempFile.createNewFile()
 
-                val body = response.body ?: throw Exception("Empty response body")
-                val totalBytes = body.contentLength()
+            try {
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        throw Exception("Failed to download file from $url: ${response.code}")
+                    }
 
-                var downloadedBytes = 0L
+                    val body = response.body ?: throw Exception("Empty response body from $url")
+                    val totalBytes = body.contentLength()
 
-                outputFile.outputStream().use { output ->
-                    body.byteStream().use { input ->
-                        val buffer = ByteArray(8 * 1024)
-                        var bytesRead: Int
+                    var downloadedBytes = 0L
 
-                        while (input.read(buffer).also { bytesRead = it } != -1) {
-                            output.write(buffer, 0, bytesRead)
-                            downloadedBytes += bytesRead
-                            withContext(Dispatchers.Main) {
-                                onProgress(downloadedBytes, totalBytes)
+                    tempFile.outputStream().use { output ->
+                        body.byteStream().use { input ->
+                            val buffer = ByteArray(8 * 1024)
+                            var bytesRead: Int
+
+                            while (input.read(buffer).also { bytesRead = it } != -1) {
+                                output.write(buffer, 0, bytesRead)
+                                downloadedBytes += bytesRead
+                                withContext(Dispatchers.Main) {
+                                    onProgress(downloadedBytes, totalBytes)
+                                }
                             }
                         }
                     }
                 }
+
+                runCatching {
+                    Files.move(
+                        tempFile.toPath(),
+                        outputFile.toPath(),
+                        StandardCopyOption.REPLACE_EXISTING,
+                        StandardCopyOption.ATOMIC_MOVE
+                    )
+                }.onFailure {
+                    Files.move(
+                        tempFile.toPath(),
+                        outputFile.toPath(),
+                        StandardCopyOption.REPLACE_EXISTING
+                    )
+                }
+            } catch (error: Exception) {
+                tempFile.delete()
+                throw error
             }
         }
     }
@@ -403,11 +534,24 @@ class TerminalActivity : ComponentActivity() {
 }
 
 private const val aarch64_packages =
-    "https://github.com/itsvks19/vcspace-packages/raw/refs/heads/main/aarch64/usr.tar.gz"
+    "https://ghfast.top/https://raw.githubusercontent.com/itsvks19/vcspace-packages/refs/heads/main/aarch64/usr.tar.gz"
 private const val arm_packages =
-    "https://github.com/itsvks19/vcspace-packages/raw/refs/heads/main/arm/usr.tar.gz"
+    "https://ghfast.top/https://raw.githubusercontent.com/itsvks19/vcspace-packages/refs/heads/main/arm/usr.tar.gz"
 private const val x86_64_packages =
+    "https://ghfast.top/https://raw.githubusercontent.com/itsvks19/vcspace-packages/refs/heads/main/x86_64/usr.tar.gz"
+
+private val aarch64_package_fallbacks = listOf(
+    "https://gh-proxy.com/https://github.com/itsvks19/vcspace-packages/raw/refs/heads/main/aarch64/usr.tar.gz",
+    "https://github.com/itsvks19/vcspace-packages/raw/refs/heads/main/aarch64/usr.tar.gz"
+)
+private val arm_package_fallbacks = listOf(
+    "https://gh-proxy.com/https://github.com/itsvks19/vcspace-packages/raw/refs/heads/main/arm/usr.tar.gz",
+    "https://github.com/itsvks19/vcspace-packages/raw/refs/heads/main/arm/usr.tar.gz"
+)
+private val x86_64_package_fallbacks = listOf(
+    "https://gh-proxy.com/https://github.com/itsvks19/vcspace-packages/raw/refs/heads/main/x86_64/usr.tar.gz",
     "https://github.com/itsvks19/vcspace-packages/raw/refs/heads/main/x86_64/usr.tar.gz"
+)
 
 private const val alpine_arm =
     "https://mirrors.aliyun.com/alpine/v3.22/releases/armhf/alpine-minirootfs-3.22.1-armhf.tar.gz"
