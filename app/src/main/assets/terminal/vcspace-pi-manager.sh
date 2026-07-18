@@ -32,7 +32,7 @@ write_npm_launcher() {
 }
 
 install_base_packages() {
-  apk add --no-cache nodejs git ca-certificates wget tar gzip
+  apk add --no-cache nodejs git ca-certificates wget tar gzip findutils
 }
 
 install_npm_from_registry() {

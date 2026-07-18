@@ -16,7 +16,7 @@
 package com.teixeira.vcspace.pi
 
 object PiCommands {
-    private const val MANAGER = "/usr/bin/vcspace-pi-manager"
+    private const val MANAGER = "\$PREFIX/bin/vcspace-pi-manager"
 
     val OPEN_PI: String = "$MANAGER open; exec /bin/bash"
 
