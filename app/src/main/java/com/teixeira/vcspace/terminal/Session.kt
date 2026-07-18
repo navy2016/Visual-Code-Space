@@ -102,9 +102,11 @@ object Session {
             val initHost = bin.child("init-host").apply {
                 writeText(
                     assets.open("terminal/init-host.sh").bufferedReader().use { it.readText() })
+                setExecutable(true)
             }
             bin.child("init").apply {
                 writeText(assets.open("terminal/init.sh").bufferedReader().use { it.readText() })
+                setExecutable(true)
             }
 
             val shell = "/system/bin/sh"
@@ -116,7 +118,7 @@ object Session {
                 "cd ${shellQuote(prootWorkingDir)} && $prootCommand"
             }
             intent.removeExtra(TerminalActivity.KEY_PROOT_COMMAND)
-            val args = arrayOf("-c", "${initHost.absolutePath} ${shellQuote(command)}")
+            val args = arrayOf(shell, initHost.absolutePath, command)
 
             return TerminalSession(
                 shell,
