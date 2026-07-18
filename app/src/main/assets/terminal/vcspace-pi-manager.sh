@@ -19,7 +19,12 @@ find_npm_cli() {
     echo "$NPM_CLI"
     return 0
   fi
-  find /usr/lib /usr/local/lib -path '*/npm-cli.js' -type f 2>/dev/null | head -n 1
+
+  if [ -x /usr/bin/find ]; then
+    /usr/bin/find /usr/lib /usr/local/lib -path '*/npm-cli.js' -type f 2>/dev/null | head -n 1
+  else
+    find /usr/lib /usr/local/lib -path '*/npm-cli.js' -type f 2>/dev/null | head -n 1
+  fi
 }
 
 write_npm_launcher() {
@@ -48,16 +53,36 @@ install_npm_from_registry() {
     return 1
   fi
 
-  if ! tar -xzf "$npm_tgz" -C "$npm_unpack"; then
-    log "Failed to unpack standalone npm bundle."
-    rm -rf "$npm_tmp"
+  rm -rf /usr/lib/node_modules/npm
+  mkdir -p /usr/lib/node_modules/npm
+
+  if [ -x /usr/bin/tar ]; then
+    if ! /usr/bin/tar -xzf "$npm_tgz" -C /usr/lib/node_modules/npm --strip-components=1; then
+      log "Failed to unpack standalone npm bundle with GNU tar."
+      rm -rf "$npm_tmp" /usr/lib/node_modules/npm
+      return 1
+    fi
+  else
+    if ! tar -xzf "$npm_tgz" -C "$npm_unpack"; then
+      log "Failed to unpack standalone npm bundle."
+      rm -rf "$npm_tmp" /usr/lib/node_modules/npm
+      return 1
+    fi
+    cp -R "$npm_unpack/package/." /usr/lib/node_modules/npm/ || {
+      log "Failed to copy standalone npm bundle."
+      rm -rf "$npm_tmp" /usr/lib/node_modules/npm
+      return 1
+    }
+  fi
+
+  rm -rf "$npm_tmp"
+  if [ ! -f "$NPM_CLI" ]; then
+    log "Standalone npm bundle did not create $NPM_CLI"
+    ls -la /usr/lib/node_modules/npm 2>/dev/null || true
+    ls -la /usr/lib/node_modules/npm/bin 2>/dev/null || true
     return 1
   fi
 
-  rm -rf /usr/lib/node_modules/npm
-  mkdir -p /usr/lib/node_modules
-  mv "$npm_unpack/package" /usr/lib/node_modules/npm
-  rm -rf "$npm_tmp"
   write_npm_launcher
 }
 
