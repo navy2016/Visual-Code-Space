@@ -99,8 +99,15 @@ install_npm_from_registry() {
   rm -rf "$NPM_ROOT"
   mkdir -p "$NPM_ROOT"
 
-  if ! /usr/bin/tar -xzf "$npm_tgz" -C "$NPM_ROOT" --strip-components=1; then
-    log "Failed to unpack standalone npm bundle with GNU tar."
+  tar_bin="$(command -v tar || true)"
+  if [ -z "$tar_bin" ]; then
+    log "tar is unavailable after apk install."
+    rm -rf "$npm_tmp" "$NPM_ROOT"
+    return 1
+  fi
+
+  if ! "$tar_bin" -xzf "$npm_tgz" -C "$NPM_ROOT" --strip-components=1; then
+    log "Failed to unpack standalone npm bundle with tar: $tar_bin"
     rm -rf "$npm_tmp" "$NPM_ROOT"
     return 1
   fi
