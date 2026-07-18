@@ -88,6 +88,32 @@ object AgentToolSchemas {
         put("additionalProperties", false)
     }
 
+    val pluginInvokeTool: JsonObject = buildJsonObject {
+        put("type", "object")
+        put(
+            "properties",
+            buildJsonObject {
+                put(
+                    "tool",
+                    buildJsonObject {
+                        put("type", "string")
+                        put("description", "Fully-qualified plugin agent tool name to invoke.")
+                    }
+                )
+                put(
+                    "arguments",
+                    buildJsonObject {
+                        put("type", "object")
+                        put("description", "Arguments passed to the plugin tool.")
+                        put("additionalProperties", true)
+                    }
+                )
+            }
+        )
+        put("required", buildJsonArray { add("tool") })
+        put("additionalProperties", false)
+    }
+
     val writeFile: JsonObject = buildJsonObject {
         put("type", "object")
         put(

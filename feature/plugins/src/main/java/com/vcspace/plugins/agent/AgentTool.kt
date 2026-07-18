@@ -13,18 +13,21 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.teixeira.vcspace.agent
+package com.vcspace.plugins.agent
 
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-
+/**
+ * A tool exposed by a plugin to AI agents such as Pi.
+ *
+ * parameterSchemaJson must be a JSON Schema object. Keep schemas strict and small so models can
+ * call the tool reliably.
+ */
 interface AgentTool {
     val name: String
     val label: String
     val description: String
-    val parameters: JsonObject
+    val parameterSchemaJson: String
     val permissions: Set<AgentToolPermission>
-    val provider: String
+
     val dangerous: Boolean
         get() = permissions.any {
             it == AgentToolPermission.WRITE_EDITOR ||
@@ -34,39 +37,10 @@ interface AgentTool {
                 it == AgentToolPermission.PLUGIN
         }
 
-    suspend fun execute(arguments: JsonObject): AgentToolResult
+    /**
+     * Execute the tool.
+     *
+     * @param argumentsJson JSON object string validated by Pi against [parameterSchemaJson].
+     */
+    fun execute(argumentsJson: String): AgentToolResult
 }
-
-data class AgentToolSpec(
-    val name: String,
-    val label: String,
-    val description: String,
-    val parameters: JsonObject,
-    val permissions: Set<AgentToolPermission>,
-    val provider: String,
-    val dangerous: Boolean
-)
-
-data class AgentToolResult(
-    val text: String,
-    val isError: Boolean = false,
-    val data: JsonElement? = null
-) {
-    companion object {
-        fun text(text: String, data: JsonElement? = null): AgentToolResult =
-            AgentToolResult(text = text, data = data)
-
-        fun error(message: String, data: JsonElement? = null): AgentToolResult =
-            AgentToolResult(text = message, isError = true, data = data)
-    }
-}
-
-fun AgentTool.toSpec(): AgentToolSpec = AgentToolSpec(
-    name = name,
-    label = label,
-    description = description,
-    parameters = parameters,
-    permissions = permissions,
-    provider = provider,
-    dangerous = dangerous
-)

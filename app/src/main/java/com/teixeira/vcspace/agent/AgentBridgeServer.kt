@@ -27,7 +27,7 @@ import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.content
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import java.security.SecureRandom
@@ -95,7 +95,7 @@ class AgentBridgeServer(
     private suspend fun invokeTool(session: IHTTPSession): Response {
         val body = parseBody(session)
         val payload = Json.parseToJsonElement(body).jsonObject
-        val name = payload["name"]?.jsonPrimitive?.content
+        val name = payload["name"]?.jsonPrimitive?.contentOrNull
             ?: return jsonError("Missing required field: name", Response.Status.BAD_REQUEST)
         val arguments = payload["arguments"]?.jsonObject ?: JsonObject(emptyMap())
 

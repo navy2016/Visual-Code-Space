@@ -13,8 +13,11 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.teixeira.vcspace.agent
+package com.vcspace.plugins.agent
 
+/**
+ * Declares what an AI-callable plugin tool is allowed to affect.
+ */
 enum class AgentToolPermission {
     READ_EDITOR,
     WRITE_EDITOR,

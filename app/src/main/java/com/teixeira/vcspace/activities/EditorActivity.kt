@@ -59,6 +59,7 @@ import com.teixeira.vcspace.activities.Editor.LocalEditorSnackbarHostState
 import com.teixeira.vcspace.activities.base.BaseComposeActivity
 import com.teixeira.vcspace.activities.base.ObserveLifecycleEvents
 import com.teixeira.vcspace.agent.AgentEditorBridge
+import com.teixeira.vcspace.agent.PluginAgentToolRegistry
 import com.teixeira.vcspace.app.DoNothing
 import com.teixeira.vcspace.app.MONACO_EDITOR_ARCHIVE
 import com.teixeira.vcspace.app.noLocalProvidedFor
@@ -98,6 +99,7 @@ import kiwi.orbit.compose.ui.controls.Scaffold
 import kiwi.orbit.compose.ui.controls.ToastHostState
 import kiwi.orbit.compose.ui.controls.rememberToastHostState
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
@@ -269,19 +271,21 @@ class EditorActivity : BaseComposeActivity() {
 
                     lifecycleScope.launch {
                         //fileExplorerViewModel.openFolder(PathUtils.getInternalAppFilesPath().toFile().wrapFile())
+                        PluginAgentToolRegistry.clearAllPlugins()
                         runCatching {
                             PluginLoader.loadPlugins(this@EditorActivity)
                         }.onSuccess { plugins ->
-                            val pluginContext =
-                                PluginContextImpl(
-                                    this@EditorActivity,
-                                    editorViewModel,
-                                    compositionContext
-                                )
                             plugins.forEach { pluginEntry ->
                                 if (pluginEntry.first.enabled) {
                                     runCatching {
-                                        pluginEntry.second.onPluginLoaded(pluginContext)
+                                        pluginEntry.second.onPluginLoaded(
+                                            PluginContextImpl(
+                                                this@EditorActivity,
+                                                editorViewModel,
+                                                compositionContext,
+                                                pluginEntry.first.id
+                                            )
+                                        )
                                     }.onFailure {
                                         toastHostState.showToast(
                                             it.message ?: "Error loading plugin"
@@ -310,6 +314,7 @@ class EditorActivity : BaseComposeActivity() {
                 Lifecycle.Event.ON_DESTROY -> {
                     editorViewModel.rememberLastFiles()
                     AgentEditorBridge.detach(this@EditorActivity)
+                    runBlocking { PluginAgentToolRegistry.clearAllPlugins() }
                     EventBus.getDefault().unregister(this@EditorActivity)
                     clearCache()
                 }

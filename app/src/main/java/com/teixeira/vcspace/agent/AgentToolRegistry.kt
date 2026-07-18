@@ -45,8 +45,22 @@ object AgentToolRegistry {
         }
     }
 
+    suspend fun clearProvidersWithPrefix(providerPrefix: String) {
+        mutex.withLock {
+            tools.entries.removeAll { it.value.provider.startsWith(providerPrefix) }
+        }
+    }
+
     suspend fun listTools(): List<AgentToolSpec> = mutex.withLock {
         tools.values.map { it.toSpec() }
+    }
+
+    suspend fun listTools(providerPrefix: String): List<AgentToolSpec> = mutex.withLock {
+        tools.values.filter { it.provider.startsWith(providerPrefix) }.map { it.toSpec() }
+    }
+
+    suspend fun findTool(name: String): AgentToolSpec? = mutex.withLock {
+        tools[name]?.toSpec()
     }
 
     suspend fun invoke(name: String, arguments: JsonObject): AgentToolResult {

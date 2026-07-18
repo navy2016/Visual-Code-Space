@@ -20,7 +20,13 @@ import com.teixeira.vcspace.file.wrapFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
@@ -128,8 +134,61 @@ object BuiltInAgentTools {
             val message = args.string("message")
                 ?: return@SimpleAgentTool AgentToolResult.error("Missing required argument: message")
             AgentEditorBridge.showToast(message, args.boolean("long") ?: false)
+        },
+        SimpleAgentTool(
+            name = "plugin_list_tools",
+            label = "List Plugin Agent Tools",
+            description = "List AI-callable tools registered by Visual Code Space plugins.",
+            parameters = AgentToolSchemas.emptyObject,
+            permissions = setOf(AgentToolPermission.READ_PLUGIN)
+        ) {
+            listPluginTools()
+        },
+        SimpleAgentTool(
+            name = "plugin_invoke_tool",
+            label = "Invoke Plugin Agent Tool",
+            description = "Invoke an AI-callable tool registered by a Visual Code Space plugin.",
+            parameters = AgentToolSchemas.pluginInvokeTool,
+            permissions = setOf(AgentToolPermission.PLUGIN)
+        ) { args ->
+            val toolName = args.string("tool")
+                ?: return@SimpleAgentTool AgentToolResult.error("Missing required argument: tool")
+            val toolArgs = args["arguments"]?.jsonObject ?: JsonObject(emptyMap())
+            PluginAgentToolRegistry.invoke(toolName, toolArgs)
         }
     )
+
+    private suspend fun listPluginTools(): AgentToolResult {
+        val tools = PluginAgentToolRegistry.listPluginTools()
+        val data = buildJsonObject {
+            put("tools", buildJsonArray {
+                tools.forEach { spec ->
+                    add(
+                        buildJsonObject {
+                            put("name", spec.name)
+                            put("label", spec.label)
+                            put("description", spec.description)
+                            put("parameters", spec.parameters)
+                            put("provider", spec.provider)
+                            put("dangerous", spec.dangerous)
+                            put("permissions", buildJsonArray {
+                                spec.permissions.forEach { permission -> add(permission.name) }
+                            })
+                        }
+                    )
+                }
+            })
+        }
+        val text = if (tools.isEmpty()) {
+            "No plugin agent tools registered."
+        } else {
+            data["tools"]?.jsonArray?.joinToString("\n") { tool ->
+                val item = tool.jsonObject
+                "${item["name"]?.jsonPrimitive?.contentOrNull}: ${item["description"]?.jsonPrimitive?.contentOrNull}"
+            }.orEmpty()
+        }
+        return AgentToolResult.text(text, data)
+    }
 
     private suspend fun readFile(context: Context, path: String): AgentToolResult =
         withContext(Dispatchers.IO) {
