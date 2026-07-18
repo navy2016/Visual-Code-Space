@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -102,6 +103,16 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                         summary = { Text(stringResource(strings.pref_configure_file_explorer_summary)) },
                         onClick = {
                             navController.navigateSingleTop(SettingScreens.File)
+                        }
+                    )
+
+                    preference(
+                        key = "pref_configure_terminal_key",
+                        title = { Text("Terminal") },
+                        summary = { Text("Configure terminal font size and output width.") },
+                        icon = { Icon(Icons.Default.Code, contentDescription = null) },
+                        onClick = {
+                            navController.navigateSingleTop(SettingScreens.Terminal)
                         }
                     )
 
@@ -212,6 +223,15 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                             SettingScreens.MonacoEditor
                         )
                     }
+                )
+            }
+        }
+
+        composable<SettingScreens.Terminal> {
+            ProvidePreferenceLocals {
+                TerminalSettingsScreen(
+                    modifier = modifier,
+                    onNavigateUp = navController::navigateUp
                 )
             }
         }

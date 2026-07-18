@@ -207,6 +207,20 @@ object Settings {
         fun rememberAutoSave() = rememberPreference(key = AUTO_SAVE, defaultValue = false)
     }
 
+    object Terminal {
+        val FONT_SIZE = floatPreferencesKey("terminal_font_size")
+        val OUTPUT_WIDTH_PERCENT = intPreferencesKey("terminal_output_width_percent")
+
+        @Composable
+        fun rememberFontSize() = rememberPreference(key = FONT_SIZE, defaultValue = 23f)
+
+        @Composable
+        fun rememberOutputWidthPercent() = rememberPreference(
+            key = OUTPUT_WIDTH_PERCENT,
+            defaultValue = 100
+        )
+    }
+
     object Monaco {
         val MONACO_THEME = stringPreferencesKey("monaco_theme")
         val FONT_SIZE = intPreferencesKey("monaco_font_size")

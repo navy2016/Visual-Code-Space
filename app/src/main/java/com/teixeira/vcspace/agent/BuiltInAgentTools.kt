@@ -16,7 +16,10 @@
 package com.teixeira.vcspace.agent
 
 import android.content.Context
+import android.content.Intent
+import com.teixeira.vcspace.activities.TerminalActivity
 import com.teixeira.vcspace.file.wrapFile
+import com.teixeira.vcspace.pi.PiCommands
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
@@ -28,6 +31,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 
@@ -81,6 +85,42 @@ object BuiltInAgentTools {
             AgentEditorBridge.saveCurrentFile()
         },
         SimpleAgentTool(
+            name = "editor_save_all",
+            label = "Save All Editor Files",
+            description = "Save all opened Visual Code Space editor files.",
+            parameters = AgentToolSchemas.emptyObject,
+            permissions = setOf(AgentToolPermission.WRITE_EDITOR)
+        ) {
+            AgentEditorBridge.saveAllFiles()
+        },
+        SimpleAgentTool(
+            name = "editor_list_open_files",
+            label = "List Open Editor Files",
+            description = "List all files currently opened in Visual Code Space editor tabs.",
+            parameters = AgentToolSchemas.emptyObject,
+            permissions = setOf(AgentToolPermission.READ_EDITOR)
+        ) {
+            AgentEditorBridge.listOpenFiles()
+        },
+        SimpleAgentTool(
+            name = "editor_select_file",
+            label = "Select Open Editor File",
+            description = "Switch the active Visual Code Space editor tab by absolute path or zero-based index.",
+            parameters = AgentToolSchemas.editorFileSelector,
+            permissions = setOf(AgentToolPermission.READ_EDITOR, AgentToolPermission.MANAGE_EDITOR)
+        ) { args ->
+            AgentEditorBridge.selectOpenFile(args.string("path"), args.int("index"))
+        },
+        SimpleAgentTool(
+            name = "editor_close_file",
+            label = "Close Open Editor File",
+            description = "Close a Visual Code Space editor tab by absolute path or zero-based index. Defaults to the active tab.",
+            parameters = AgentToolSchemas.editorFileSelector,
+            permissions = setOf(AgentToolPermission.MANAGE_EDITOR)
+        ) { args ->
+            AgentEditorBridge.closeOpenFile(args.string("path"), args.int("index"))
+        },
+        SimpleAgentTool(
             name = "editor_open_file",
             label = "Open File in Editor",
             description = "Open an existing file in the Visual Code Space editor.",
@@ -99,6 +139,19 @@ object BuiltInAgentTools {
             permissions = setOf(AgentToolPermission.READ_WORKSPACE)
         ) {
             AgentToolResult.text(AgentEditorBridge.getWorkspaceRootPath() ?: "")
+        },
+        SimpleAgentTool(
+            name = "workspace_list_files",
+            label = "List Workspace Files",
+            description = "List files under a workspace or Android-accessible directory.",
+            parameters = AgentToolSchemas.listFiles,
+            permissions = setOf(AgentToolPermission.READ_WORKSPACE)
+        ) { args ->
+            listFiles(
+                path = args.string("path") ?: AgentEditorBridge.getWorkspaceRootPath(),
+                recursive = args.boolean("recursive") ?: false,
+                maxEntries = args.int("max_entries") ?: 200
+            )
         },
         SimpleAgentTool(
             name = "workspace_read_file",
@@ -136,6 +189,20 @@ object BuiltInAgentTools {
             AgentEditorBridge.showToast(message, args.boolean("long") ?: false)
         },
         SimpleAgentTool(
+            name = "app_open_terminal",
+            label = "Open Terminal",
+            description = "Open Visual Code Space Terminal, optionally running Pi or a shell command.",
+            parameters = AgentToolSchemas.openTerminal,
+            permissions = setOf(AgentToolPermission.RUN_TERMINAL, AgentToolPermission.UI)
+        ) { args ->
+            openTerminal(
+                context = context,
+                command = args.string("command"),
+                workingDirectory = args.string("working_directory"),
+                runPi = args.boolean("run_pi") ?: false
+            )
+        },
+        SimpleAgentTool(
             name = "plugin_list_tools",
             label = "List Plugin Agent Tools",
             description = "List AI-callable tools registered by Visual Code Space plugins.",
@@ -157,6 +224,28 @@ object BuiltInAgentTools {
             PluginAgentToolRegistry.invoke(toolName, toolArgs)
         }
     )
+
+    private fun openTerminal(
+        context: Context,
+        command: String?,
+        workingDirectory: String?,
+        runPi: Boolean
+    ): AgentToolResult {
+        val intent = Intent(context, TerminalActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            if (!workingDirectory.isNullOrBlank()) {
+                putExtra(TerminalActivity.KEY_WORKING_DIRECTORY, workingDirectory)
+            }
+            if (runPi) {
+                putExtra(TerminalActivity.KEY_RUN_PI, true)
+                putExtra(TerminalActivity.KEY_PROOT_COMMAND, command ?: PiCommands.OPEN_PI)
+            } else if (!command.isNullOrBlank()) {
+                putExtra(TerminalActivity.KEY_PROOT_COMMAND, command)
+            }
+        }
+        context.startActivity(intent)
+        return AgentToolResult.text("Opened Visual Code Space terminal")
+    }
 
     private suspend fun listPluginTools(): AgentToolResult {
         val tools = PluginAgentToolRegistry.listPluginTools()
@@ -189,6 +278,32 @@ object BuiltInAgentTools {
         }
         return AgentToolResult.text(text, data)
     }
+
+    private suspend fun listFiles(path: String?, recursive: Boolean, maxEntries: Int): AgentToolResult =
+        withContext(Dispatchers.IO) {
+            if (path.isNullOrBlank()) {
+                return@withContext AgentToolResult.error("No workspace root or path provided")
+            }
+
+            val root = File(path)
+            if (!root.exists() || !root.isDirectory) {
+                return@withContext AgentToolResult.error("Directory does not exist: $path")
+            }
+
+            val limit = maxEntries.coerceIn(1, 2000)
+            val files = if (recursive) {
+                root.walkTopDown().drop(1).take(limit).toList()
+            } else {
+                root.listFiles()?.take(limit).orEmpty()
+            }
+
+            val text = files.joinToString("\n") { file ->
+                val type = if (file.isDirectory) "dir" else "file"
+                "[$type] ${file.absolutePath}"
+            }.ifBlank { "Directory is empty: ${root.absolutePath}" }
+
+            AgentToolResult.text(text)
+        }
 
     private suspend fun readFile(context: Context, path: String): AgentToolResult =
         withContext(Dispatchers.IO) {
@@ -227,4 +342,7 @@ object BuiltInAgentTools {
 
     private fun JsonObject.boolean(name: String): Boolean? =
         this[name]?.jsonPrimitive?.booleanOrNull
+
+    private fun JsonObject.int(name: String): Int? =
+        this[name]?.jsonPrimitive?.intOrNull
 }

@@ -21,6 +21,7 @@ enum class AgentToolPermission {
     READ_WORKSPACE,
     WRITE_WORKSPACE,
     READ_PLUGIN,
+    MANAGE_EDITOR,
     RUN_TERMINAL,
     NETWORK,
     UI,

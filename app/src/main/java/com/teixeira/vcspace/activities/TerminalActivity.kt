@@ -140,30 +140,33 @@ class TerminalActivity : ComponentActivity() {
             try {
                 val abi = Build.SUPPORTED_ABIS
 
-                val filesToDownload = listOf(
-                    DownloadFile(
-                        url = if (abi.contains("x86_64")) {
-                            x86_64_packages
-                        } else if (abi.contains("arm64-v8a")) {
-                            aarch64_packages
-                        } else if (abi.contains("armeabi-v7a")) {
-                            arm_packages
-                        } else {
-                            throw RuntimeException("Unsupported CPU")
-                        },
-                        outputPath = "tmp/usr.tar.gz",
-                        fallbackUrls = if (abi.contains("x86_64")) {
-                            x86_64_package_fallbacks
-                        } else if (abi.contains("arm64-v8a")) {
-                            aarch64_package_fallbacks
-                        } else if (abi.contains("armeabi-v7a")) {
-                            arm_package_fallbacks
-                        } else {
-                            emptyList()
-                        },
-                        forceDownload = !isTerminalSupportReady()
+                val filesToDownload = mutableListOf<DownloadFile>()
+
+                if (!isTerminalSupportReady()) {
+                    filesToDownload.add(
+                        DownloadFile(
+                            url = if (abi.contains("x86_64")) {
+                                x86_64_packages
+                            } else if (abi.contains("arm64-v8a")) {
+                                aarch64_packages
+                            } else if (abi.contains("armeabi-v7a")) {
+                                arm_packages
+                            } else {
+                                throw RuntimeException("Unsupported CPU")
+                            },
+                            outputPath = "tmp/usr.tar.gz",
+                            fallbackUrls = if (abi.contains("x86_64")) {
+                                x86_64_package_fallbacks
+                            } else if (abi.contains("arm64-v8a")) {
+                                aarch64_package_fallbacks
+                            } else if (abi.contains("armeabi-v7a")) {
+                                arm_package_fallbacks
+                            } else {
+                                emptyList()
+                            }
+                        )
                     )
-                ).toMutableList()
+                }
 
                 if (!isAlpineReady()) {
                     filesToDownload.add(

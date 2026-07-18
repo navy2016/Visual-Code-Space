@@ -102,6 +102,9 @@ class TerminalService : Service() {
             sessions[id]?.finishIfRunning()
             sessions.remove(id)
             sessionList.remove(id)
+            if (currentSession.value == id) {
+                currentSession.value = sessionList.lastOrNull() ?: "main"
+            }
             if (sessions.isEmpty()) {
                 stopSelf()
             } else {

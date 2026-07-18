@@ -27,6 +27,37 @@ object AgentToolSchemas {
         put("additionalProperties", false)
     }
 
+    val openTerminal: JsonObject = buildJsonObject {
+        put("type", "object")
+        put(
+            "properties",
+            buildJsonObject {
+                put(
+                    "command",
+                    buildJsonObject {
+                        put("type", "string")
+                        put("description", "Optional shell command to run inside the Alpine/proot terminal.")
+                    }
+                )
+                put(
+                    "working_directory",
+                    buildJsonObject {
+                        put("type", "string")
+                        put("description", "Optional working directory for the terminal session.")
+                    }
+                )
+                put(
+                    "run_pi",
+                    buildJsonObject {
+                        put("type", "boolean")
+                        put("description", "Whether to open Pi in the terminal instead of a generic shell.")
+                    }
+                )
+            }
+        )
+        put("additionalProperties", false)
+    }
+
     val showToast: JsonObject = buildJsonObject {
         put("type", "object")
         put(
@@ -67,6 +98,61 @@ object AgentToolSchemas {
             }
         )
         put("required", buildJsonArray { add("path") })
+        put("additionalProperties", false)
+    }
+
+    val editorFileSelector: JsonObject = buildJsonObject {
+        put("type", "object")
+        put(
+            "properties",
+            buildJsonObject {
+                put(
+                    "path",
+                    buildJsonObject {
+                        put("type", "string")
+                        put("description", "Absolute path of an opened editor file.")
+                    }
+                )
+                put(
+                    "index",
+                    buildJsonObject {
+                        put("type", "integer")
+                        put("description", "Zero-based index of an opened editor tab.")
+                    }
+                )
+            }
+        )
+        put("additionalProperties", false)
+    }
+
+    val listFiles: JsonObject = buildJsonObject {
+        put("type", "object")
+        put(
+            "properties",
+            buildJsonObject {
+                put(
+                    "path",
+                    buildJsonObject {
+                        put("type", "string")
+                        put("description", "Directory path to list. Defaults to workspace root.")
+                    }
+                )
+                put(
+                    "recursive",
+                    buildJsonObject {
+                        put("type", "boolean")
+                        put("description", "Whether to list files recursively.")
+                    }
+                )
+                put(
+                    "max_entries",
+                    buildJsonObject {
+                        put("type", "integer")
+                        put("description", "Maximum number of entries to return.")
+                    }
+                )
+            }
+        )
         put("additionalProperties", false)
     }
 

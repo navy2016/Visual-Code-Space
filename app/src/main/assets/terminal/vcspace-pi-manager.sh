@@ -105,7 +105,20 @@ configure_apk_repositories() {
 
 install_base_packages() {
   configure_apk_repositories
-  apk add --no-cache nodejs git ca-certificates wget tar gzip findutils
+
+  missing_packages=""
+  for pkg in nodejs git ca-certificates wget tar gzip findutils; do
+    if ! apk info -e "$pkg" >/dev/null 2>&1; then
+      missing_packages="$missing_packages $pkg"
+    fi
+  done
+
+  if [ -z "$missing_packages" ]; then
+    log "Base packages already installed; skipping apk add."
+    return 0
+  fi
+
+  apk add --no-cache $missing_packages
 }
 
 install_npm_from_registry() {

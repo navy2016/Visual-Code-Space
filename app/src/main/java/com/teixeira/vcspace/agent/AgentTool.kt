@@ -29,6 +29,7 @@ interface AgentTool {
         get() = permissions.any {
             it == AgentToolPermission.WRITE_EDITOR ||
                 it == AgentToolPermission.WRITE_WORKSPACE ||
+                it == AgentToolPermission.MANAGE_EDITOR ||
                 it == AgentToolPermission.RUN_TERMINAL ||
                 it == AgentToolPermission.NETWORK ||
                 it == AgentToolPermission.PLUGIN

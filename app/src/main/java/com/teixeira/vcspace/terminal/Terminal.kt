@@ -21,6 +21,8 @@ import android.graphics.Typeface
 import android.util.TypedValue
 import android.view.View
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,7 +31,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -37,6 +38,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -51,6 +53,7 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
@@ -71,6 +74,7 @@ import com.teixeira.vcspace.activities.TerminalActivity
 import com.teixeira.vcspace.activities.TerminalActivity.Companion.KEY_PROOT_COMMAND
 import com.teixeira.vcspace.activities.TerminalActivity.Companion.KEY_PYTHON_FILE_PATH
 import com.teixeira.vcspace.activities.TerminalActivity.Companion.KEY_RUN_PI
+import com.teixeira.vcspace.core.settings.Settings
 import com.teixeira.vcspace.pi.PiCommands
 import com.teixeira.vcspace.pi.PiInstallStatus
 import com.teixeira.vcspace.pi.PiInstaller
@@ -97,6 +101,9 @@ fun Terminal(modifier: Modifier = Modifier, terminalActivity: TerminalActivity) 
     val backgroundColor = MaterialTheme.colorScheme.surface.toArgb()
     val foregroundColor = MaterialTheme.colorScheme.onSurface.toArgb()
     val context = LocalContext.current
+    val terminalFontSize = Settings.Terminal.rememberFontSize()
+    val terminalOutputWidth = Settings.Terminal.rememberOutputWidthPercent()
+    val terminalOutputWidthFraction = (terminalOutputWidth.value / 100f).coerceIn(0.6f, 1f)
 
     LaunchedEffect(Unit) {
         context.startService(Intent(context, TerminalService::class.java))
@@ -108,12 +115,35 @@ fun Terminal(modifier: Modifier = Modifier, terminalActivity: TerminalActivity) 
         }
     }
 
-    Box(modifier = Modifier.imePadding()) {
+    Box(modifier = modifier.fillMaxSize()) {
         val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
         val scope = rememberCoroutineScope()
         val configuration = LocalConfiguration.current
         val screenWidthDp = configuration.screenWidthDp
         val drawerWidth = (screenWidthDp * 0.84).dp
+
+        var sessionPendingDelete by remember { mutableStateOf<String?>(null) }
+
+        sessionPendingDelete?.let { sessionId ->
+            AlertDialog(
+                onDismissRequest = { sessionPendingDelete = null },
+                title = { Text("Delete session?") },
+                text = { Text("Terminate and remove session '$sessionId'?") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        deleteSession(terminalActivity, sessionId)
+                        sessionPendingDelete = null
+                    }) {
+                        Text("Delete")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { sessionPendingDelete = null }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
 
         ModalNavigationDrawer(
             drawerState = drawerState,
@@ -208,6 +238,7 @@ fun Terminal(modifier: Modifier = Modifier, terminalActivity: TerminalActivity) 
                                     SelectableCard(
                                         selected = session_id == terminalActivity.terminalBinder?.service?.currentSession?.value,
                                         onSelect = { changeSession(terminalActivity, session_id) },
+                                        onLongClick = { sessionPendingDelete = session_id },
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .padding(8.dp)
@@ -242,7 +273,7 @@ fun Terminal(modifier: Modifier = Modifier, terminalActivity: TerminalActivity) 
                                 TerminalView(context, null).apply {
                                     terminalView = WeakReference(this)
                                     val client = TerminalBackend(this, terminalActivity)
-                                    setTextSize(23)
+                                    setTextSize(terminalFontSize.value.toInt())
                                     setTerminalViewClient(client)
                                     val service = terminalActivity.terminalBinder!!.service
                                     val pendingCommand = terminalActivity.intent.getStringExtra(KEY_PROOT_COMMAND)
@@ -293,9 +324,13 @@ fun Terminal(modifier: Modifier = Modifier, terminalActivity: TerminalActivity) 
                                 }
                             },
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f),
-                            update = { terminalView -> terminalView.onScreenUpdated() },
+                                .fillMaxWidth(terminalOutputWidthFraction)
+                                .weight(1f)
+                                .align(Alignment.CenterHorizontally),
+                            update = { terminalView ->
+                                terminalView.setTextSize(terminalFontSize.value.toInt())
+                                terminalView.onScreenUpdated()
+                            },
                         )
 
                         AndroidView(
@@ -332,6 +367,7 @@ fun Terminal(modifier: Modifier = Modifier, terminalActivity: TerminalActivity) 
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @SuppressLint("MaterialDesignInsteadOrbitDesign")
 @Composable
 fun SelectableCard(
@@ -339,6 +375,7 @@ fun SelectableCard(
     onSelect: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    onLongClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val containerColor by animateColorAsState(
@@ -350,7 +387,11 @@ fun SelectableCard(
     )
 
     Card(
-        modifier = modifier,
+        modifier = modifier.combinedClickable(
+            enabled = enabled,
+            onClick = onSelect,
+            onLongClick = onLongClick
+        ),
         colors = CardDefaults.cardColors(
             containerColor = containerColor,
             contentColor = if (selected) {
@@ -361,9 +402,7 @@ fun SelectableCard(
         ),
         elevation = CardDefaults.cardElevation(
             defaultElevation = if (selected) 8.dp else 2.dp
-        ),
-        enabled = enabled,
-        onClick = onSelect
+        )
     ) {
         Column(
             modifier = Modifier.padding(16.dp)
@@ -486,6 +525,24 @@ private fun startCommandSession(
             virtualKeysViewClient = terminalView.get()?.mTermSession?.let { VirtualKeysListener(it) }
         }
         showShortToast(terminalActivity, sessionId)
+    }
+}
+
+private fun deleteSession(terminalActivity: TerminalActivity, sessionId: String) {
+    val binder = terminalActivity.terminalBinder ?: return
+    val service = binder.service
+    val wasCurrent = service.currentSession.value == sessionId
+    binder.terminateSession(sessionId)
+
+    if (service.sessionList.isEmpty()) {
+        terminalActivity.finish()
+        return
+    }
+
+    if (wasCurrent) {
+        changeSession(terminalActivity, service.currentSession.value)
+    } else {
+        showShortToast(terminalActivity, "Deleted $sessionId")
     }
 }
 

@@ -120,7 +120,7 @@ class TerminalBackend(
     }
 
     override fun shouldEnforceCharBasedInput(): Boolean {
-        return true
+        return false
     }
 
     override fun shouldUseCtrlSpaceWorkaround(): Boolean {

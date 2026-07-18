@@ -35,6 +35,7 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
@@ -340,6 +341,43 @@ fun EditorTopBar(
                             contentDescription = null
                         )
                     }
+                }
+            }
+
+            Tooltip("Terminal") {
+                IconButton(
+                    onClick = {
+                        context.startActivity(
+                            Intent(context, TerminalActivity::class.java).apply {
+                                selectedFile?.file?.parent?.let {
+                                    putExtra(TerminalActivity.KEY_WORKING_DIRECTORY, it)
+                                }
+                            }
+                        )
+                    }
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Terminal,
+                        contentDescription = null
+                    )
+                }
+            }
+
+            Tooltip("Pi") {
+                IconButton(
+                    onClick = {
+                        context.startActivity(
+                            Intent(context, TerminalActivity::class.java).apply {
+                                putExtra(TerminalActivity.KEY_RUN_PI, true)
+                                putExtra(TerminalActivity.KEY_PROOT_COMMAND, PiCommands.OPEN_PI)
+                                selectedFile?.file?.parent?.let {
+                                    putExtra(TerminalActivity.KEY_WORKING_DIRECTORY, it)
+                                }
+                            }
+                        )
+                    }
+                ) {
+                    Text("π")
                 }
             }
 

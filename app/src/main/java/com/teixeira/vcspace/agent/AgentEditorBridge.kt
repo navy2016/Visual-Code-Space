@@ -114,6 +114,72 @@ object AgentEditorBridge {
         AgentToolResult.text("Saved current file")
     }
 
+    suspend fun saveAllFiles(): AgentToolResult = withContext(Dispatchers.Main.immediate) {
+        val viewModel = editorViewModel()
+            ?: return@withContext AgentToolResult.error("No active editor activity")
+
+        viewModel.saveAll()
+        AgentToolResult.text("Saved all opened files")
+    }
+
+    suspend fun listOpenFiles(): AgentToolResult = withContext(Dispatchers.Main.immediate) {
+        val viewModel = editorViewModel()
+            ?: return@withContext AgentToolResult.error("No active editor activity")
+
+        val state = viewModel.uiState.value
+        val text = if (state.openedFiles.isEmpty()) {
+            "No opened editor files."
+        } else {
+            state.openedFiles.mapIndexed { index, openedFile ->
+                val active = if (index == state.selectedFileIndex) "active" else "open"
+                val modified = if (openedFile.isModified) "modified" else "saved"
+                "[$index] ${openedFile.file.absolutePath} ($active, $modified)"
+            }.joinToString("\n")
+        }
+        AgentToolResult.text(text)
+    }
+
+    suspend fun selectOpenFile(path: String?, index: Int?): AgentToolResult =
+        withContext(Dispatchers.Main.immediate) {
+            val viewModel = editorViewModel()
+                ?: return@withContext AgentToolResult.error("No active editor activity")
+
+            val state = viewModel.uiState.value
+            val selectedIndex = when {
+                index != null -> index
+                !path.isNullOrBlank() -> state.openedFiles.indexOfFirst { it.file.absolutePath == path || it.file.path == path }
+                else -> -1
+            }
+
+            if (selectedIndex !in state.openedFiles.indices) {
+                return@withContext AgentToolResult.error("Opened editor file not found")
+            }
+
+            viewModel.selectFile(selectedIndex)
+            AgentToolResult.text("Selected editor file: ${state.openedFiles[selectedIndex].file.absolutePath}")
+        }
+
+    suspend fun closeOpenFile(path: String?, index: Int?): AgentToolResult =
+        withContext(Dispatchers.Main.immediate) {
+            val viewModel = editorViewModel()
+                ?: return@withContext AgentToolResult.error("No active editor activity")
+
+            val state = viewModel.uiState.value
+            val selectedIndex = when {
+                index != null -> index
+                !path.isNullOrBlank() -> state.openedFiles.indexOfFirst { it.file.absolutePath == path || it.file.path == path }
+                else -> state.selectedFileIndex
+            }
+
+            if (selectedIndex !in state.openedFiles.indices) {
+                return@withContext AgentToolResult.error("Opened editor file not found")
+            }
+
+            val file = state.openedFiles[selectedIndex].file.absolutePath
+            viewModel.closeFile(selectedIndex)
+            AgentToolResult.text("Closed editor file: $file")
+        }
+
     suspend fun openFile(path: String): AgentToolResult = withContext(Dispatchers.Main.immediate) {
         val activity = activity()
             ?: return@withContext AgentToolResult.error("No active editor activity")
