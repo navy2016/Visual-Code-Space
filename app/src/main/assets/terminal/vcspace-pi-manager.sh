@@ -7,6 +7,7 @@ NPM_VERSION="${NPM_VERSION:-11.6.4}"
 NPM_TARBALL="${NPM_TARBALL:-https://registry.npmmirror.com/npm/-/npm-${NPM_VERSION}.tgz}"
 NPM_CLI="/usr/lib/node_modules/npm/bin/npm-cli.js"
 PI_CLI="/usr/lib/node_modules/@earendil-works/pi-coding-agent/dist/cli.js"
+export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-/usr/lib:/lib}"
 export NPM_CONFIG_REGISTRY="${NPM_CONFIG_REGISTRY:-https://registry.npmmirror.com}"
 export NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-/usr}"
 
@@ -30,8 +31,8 @@ find_npm_cli() {
 write_npm_launcher() {
   if [ -f "$NPM_CLI" ]; then
     rm -f /usr/bin/npm /usr/bin/npx
-    printf '%s\n' '#!/bin/sh' 'exec node /usr/lib/node_modules/npm/bin/npm-cli.js "$@"' > /usr/bin/npm
-    printf '%s\n' '#!/bin/sh' 'exec node /usr/lib/node_modules/npm/bin/npx-cli.js "$@"' > /usr/bin/npx
+    printf '%s\n' '#!/bin/sh' 'export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-/usr/lib:/lib}"' 'exec /usr/bin/node /usr/lib/node_modules/npm/bin/npm-cli.js "$@"' > /usr/bin/npm
+    printf '%s\n' '#!/bin/sh' 'export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-/usr/lib:/lib}"' 'exec /usr/bin/node /usr/lib/node_modules/npm/bin/npx-cli.js "$@"' > /usr/bin/npx
     chmod +x /usr/bin/npm /usr/bin/npx
   fi
 }
@@ -88,7 +89,7 @@ install_npm_from_registry() {
 
 ensure_npm_ready() {
   npm_cli="$(find_npm_cli)"
-  if [ -n "$npm_cli" ] && node "$npm_cli" --version >/dev/null 2>&1; then
+  if [ -n "$npm_cli" ] && /usr/bin/node "$npm_cli" --version >/dev/null 2>&1; then
     write_npm_launcher
     return 0
   fi
@@ -96,7 +97,7 @@ ensure_npm_ready() {
   log "npm CLI is missing or broken; installing standalone npm..."
   if install_npm_from_registry; then
     npm_cli="$(find_npm_cli)"
-    if [ -n "$npm_cli" ] && node "$npm_cli" --version >/dev/null 2>&1; then
+    if [ -n "$npm_cli" ] && /usr/bin/node "$npm_cli" --version >/dev/null 2>&1; then
       write_npm_launcher
       return 0
     fi
@@ -109,7 +110,7 @@ ensure_npm_ready() {
 run_npm() {
   npm_cli="$(find_npm_cli)"
   if [ -n "$npm_cli" ]; then
-    node "$npm_cli" "$@"
+    /usr/bin/node "$npm_cli" "$@"
   else
     log "npm is unavailable. Expected npm CLI: $NPM_CLI"
     return 1
@@ -119,7 +120,7 @@ run_npm() {
 install_pi_launcher() {
   if [ -f "$PI_CLI" ]; then
     rm -f /usr/bin/pi
-    printf '%s\n' '#!/bin/sh' 'exec node /usr/lib/node_modules/@earendil-works/pi-coding-agent/dist/cli.js "$@"' > /usr/bin/pi
+    printf '%s\n' '#!/bin/sh' 'export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-/usr/lib:/lib}"' 'exec /usr/bin/node /usr/lib/node_modules/@earendil-works/pi-coding-agent/dist/cli.js "$@"' > /usr/bin/pi
     chmod +x /usr/bin/pi
     return 0
   fi
@@ -172,7 +173,7 @@ repair_pi() {
 open_pi() {
   if [ -f "$PI_CLI" ]; then
     log "Starting Pi with Visual Code Space bridge..."
-    exec node "$PI_CLI"
+    exec /usr/bin/node "$PI_CLI"
   elif command -v pi >/dev/null 2>&1; then
     log "Starting Pi with Visual Code Space bridge..."
     exec pi
@@ -186,7 +187,7 @@ smoke() {
   log "Running Pi manager smoke test..."
   install_base_packages || return 1
   ensure_npm_ready || return 1
-  node --version
+  /usr/bin/node --version
   run_npm --version || return 1
   log "Pi manager smoke test passed."
 }
