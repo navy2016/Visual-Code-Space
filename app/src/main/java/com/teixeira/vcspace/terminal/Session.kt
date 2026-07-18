@@ -36,7 +36,9 @@ object Session {
     fun createSession(
         activity: TerminalActivity,
         sessionClient: TerminalSessionClient,
-        sessionId: String
+        sessionId: String,
+        prootCommandOverride: String? = null,
+        workingDirectoryOverride: String? = null
     ): TerminalSession {
         with(activity) {
             val envVariables = mapOf(
@@ -51,7 +53,9 @@ object Session {
                 "EXTERNAL_STORAGE" to System.getenv("EXTERNAL_STORAGE")
             )
 
-            val workingDir = if (intent.hasExtra(TerminalActivity.KEY_WORKING_DIRECTORY)) {
+            val workingDir = if (!workingDirectoryOverride.isNullOrBlank()) {
+                workingDirectoryOverride
+            } else if (intent.hasExtra(TerminalActivity.KEY_WORKING_DIRECTORY)) {
                 intent.getStringExtra(TerminalActivity.KEY_WORKING_DIRECTORY).toString()
             } else if (intent.hasExtra("cwd")) {
                 intent.getStringExtra("cwd").toString()
@@ -104,7 +108,7 @@ object Session {
             }
 
             val shell = "/system/bin/sh"
-            val prootCommand = intent.getStringExtra(TerminalActivity.KEY_PROOT_COMMAND)
+            val prootCommand = prootCommandOverride ?: intent.getStringExtra(TerminalActivity.KEY_PROOT_COMMAND)
             val prootWorkingDir = shellWorkingDir(workingDir)
             val command = if (prootCommand.isNullOrBlank()) {
                 "cd ${shellQuote(prootWorkingDir)} && exec /bin/bash"

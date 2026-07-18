@@ -37,15 +37,18 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -53,7 +56,10 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
@@ -62,7 +68,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.teixeira.vcspace.activities.TerminalActivity
+import com.teixeira.vcspace.activities.TerminalActivity.Companion.KEY_PROOT_COMMAND
 import com.teixeira.vcspace.activities.TerminalActivity.Companion.KEY_PYTHON_FILE_PATH
+import com.teixeira.vcspace.activities.TerminalActivity.Companion.KEY_RUN_PI
+import com.teixeira.vcspace.pi.PiCommands
+import com.teixeira.vcspace.pi.PiInstallStatus
+import com.teixeira.vcspace.pi.PiInstaller
 import com.teixeira.vcspace.terminal.service.TerminalService
 import com.teixeira.vcspace.ui.virtualkeys.VirtualKeysConstants
 import com.teixeira.vcspace.ui.virtualkeys.VirtualKeysInfo
@@ -113,6 +124,51 @@ fun Terminal(modifier: Modifier = Modifier, terminalActivity: TerminalActivity) 
                         modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        var piInstallStatus by remember { mutableStateOf(PiInstaller.status()) }
+                        terminalActivity.terminalBinder?.service?.let { service ->
+                            PiBridgePanel(
+                                installStatus = piInstallStatus,
+                                bridgeStatus = service.piBridgeStatus.value,
+                                onRefresh = { piInstallStatus = PiInstaller.status() },
+                                onOpenPi = {
+                                    service.ensurePiBridgeStarted()
+                                    startCommandSession(
+                                        terminalActivity = terminalActivity,
+                                        sessionPrefix = "pi",
+                                        command = PiCommands.OPEN_PI,
+                                        workingDirectory = terminalActivity.workingDirectory
+                                    )
+                                    scope.launch { drawerState.close() }
+                                },
+                                onInstallPi = {
+                                    startCommandSession(
+                                        terminalActivity = terminalActivity,
+                                        sessionPrefix = "install-pi",
+                                        command = PiCommands.INSTALL_PI
+                                    )
+                                    scope.launch { drawerState.close() }
+                                },
+                                onUpdatePi = {
+                                    startCommandSession(
+                                        terminalActivity = terminalActivity,
+                                        sessionPrefix = "update-pi",
+                                        command = PiCommands.UPDATE_PI
+                                    )
+                                    scope.launch { drawerState.close() }
+                                },
+                                onRepairPi = {
+                                    startCommandSession(
+                                        terminalActivity = terminalActivity,
+                                        sessionPrefix = "repair-pi",
+                                        command = PiCommands.REPAIR_PI
+                                    )
+                                    scope.launch { drawerState.close() }
+                                },
+                                onRestartBridge = { service.restartPiBridge() }
+                            )
+                            HorizontalDivider()
+                        }
+
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -125,22 +181,14 @@ fun Terminal(modifier: Modifier = Modifier, terminalActivity: TerminalActivity) 
                                 style = MaterialTheme.typography.titleLarge
                             )
                             IconButton(onClick = {
-                                fun generateUniqueString(existingStrings: List<String>): String {
-                                    var index = 1
-                                    var newString: String
-
-                                    do {
-                                        newString = "main$index"
-                                        index++
-                                    } while (newString in existingStrings)
-
-                                    return newString
-                                }
                                 terminalView.get()
                                     ?.let {
                                         val client = TerminalBackend(it, terminalActivity)
                                         terminalActivity.terminalBinder!!.createSession(
-                                            generateUniqueString(terminalActivity.terminalBinder!!.service.sessionList),
+                                            generateUniqueSessionId(
+                                                terminalActivity.terminalBinder!!.service.sessionList,
+                                                "main"
+                                            ),
                                             client,
                                             terminalActivity
                                         )
@@ -196,15 +244,31 @@ fun Terminal(modifier: Modifier = Modifier, terminalActivity: TerminalActivity) 
                                     val client = TerminalBackend(this, terminalActivity)
                                     setTextSize(23)
                                     setTerminalViewClient(client)
-                                    val session =
-                                        terminalActivity.terminalBinder!!.getSession(
-                                            terminalActivity.terminalBinder!!.service.currentSession.value
+                                    val service = terminalActivity.terminalBinder!!.service
+                                    val pendingCommand = terminalActivity.intent.getStringExtra(KEY_PROOT_COMMAND)
+                                    val pendingSessionId = if (pendingCommand.isNullOrBlank()) {
+                                        service.currentSession.value
+                                    } else {
+                                        generateUniqueSessionId(
+                                            service.sessionList,
+                                            if (terminalActivity.intent.getBooleanExtra(KEY_RUN_PI, false)) "pi" else "task"
                                         )
+                                    }
+                                    val session = if (pendingCommand.isNullOrBlank()) {
+                                        terminalActivity.terminalBinder!!.getSession(pendingSessionId)
                                             ?: terminalActivity.terminalBinder!!.createSession(
-                                                terminalActivity.terminalBinder!!.service.currentSession.value,
+                                                pendingSessionId,
                                                 client,
                                                 terminalActivity
                                             )
+                                    } else {
+                                        terminalActivity.terminalBinder!!.createSession(
+                                            pendingSessionId,
+                                            client,
+                                            terminalActivity
+                                        )
+                                    }
+                                    service.currentSession.value = pendingSessionId
 
                                     session.updateTerminalSessionClient(client)
                                     attachSession(session)
@@ -306,6 +370,122 @@ fun SelectableCard(
         ) {
             content()
         }
+    }
+}
+
+@Composable
+private fun PiBridgePanel(
+    installStatus: PiInstallStatus,
+    bridgeStatus: String,
+    onRefresh: () -> Unit,
+    onOpenPi: () -> Unit,
+    onInstallPi: () -> Unit,
+    onUpdatePi: () -> Unit,
+    onRepairPi: () -> Unit,
+    onRestartBridge: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = "Pi / Agent",
+            style = MaterialTheme.typography.titleMedium
+        )
+        Text(
+            text = installStatus.summary,
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Text(
+            text = bridgeStatus,
+            style = MaterialTheme.typography.bodySmall
+        )
+
+        Button(
+            onClick = onOpenPi,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = installStatus.piInstalled
+        ) {
+            Text("Open Pi")
+        }
+
+        OutlinedButton(
+            onClick = onInstallPi,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(if (installStatus.piInstalled) "Reinstall Pi" else "Install Pi")
+        }
+
+        OutlinedButton(
+            onClick = onUpdatePi,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Update Pi")
+        }
+
+        OutlinedButton(
+            onClick = onRepairPi,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Repair Pi")
+        }
+
+        OutlinedButton(
+            onClick = onRestartBridge,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Restart Pi Bridge")
+        }
+
+        OutlinedButton(
+            onClick = onRefresh,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Refresh Status")
+        }
+    }
+}
+
+private fun generateUniqueSessionId(existingStrings: List<String>, prefix: String): String {
+    var index = 1
+    var newString: String
+
+    do {
+        newString = "$prefix$index"
+        index++
+    } while (newString in existingStrings)
+
+    return newString
+}
+
+private fun startCommandSession(
+    terminalActivity: TerminalActivity,
+    sessionPrefix: String,
+    command: String,
+    workingDirectory: String? = null
+) {
+    terminalView.get()?.apply {
+        val binder = terminalActivity.terminalBinder ?: return@apply
+        val service = binder.service
+        val sessionId = generateUniqueSessionId(service.sessionList, sessionPrefix)
+        val client = TerminalBackend(this, terminalActivity)
+        val session = binder.createSession(
+            id = sessionId,
+            client = client,
+            activity = terminalActivity,
+            prootCommand = command,
+            workingDirectory = workingDirectory
+        )
+        session.updateTerminalSessionClient(client)
+        attachSession(session)
+        setTerminalViewClient(client)
+        service.currentSession.value = sessionId
+        virtualKeysView.get()?.apply {
+            virtualKeysViewClient = terminalView.get()?.mTermSession?.let { VirtualKeysListener(it) }
+        }
+        showShortToast(terminalActivity, sessionId)
     }
 }
 

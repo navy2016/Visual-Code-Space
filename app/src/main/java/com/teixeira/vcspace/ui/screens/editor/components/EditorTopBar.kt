@@ -406,6 +406,20 @@ fun EditorTopBar(
                             }
                         )
                     },
+                    newCommand("Update Pi", null) {
+                        context.startActivity(
+                            Intent(context, TerminalActivity::class.java).apply {
+                                putExtra(TerminalActivity.KEY_PROOT_COMMAND, PiCommands.UPDATE_PI)
+                            }
+                        )
+                    },
+                    newCommand("Repair Pi", null) {
+                        context.startActivity(
+                            Intent(context, TerminalActivity::class.java).apply {
+                                putExtra(TerminalActivity.KEY_PROOT_COMMAND, PiCommands.REPAIR_PI)
+                            }
+                        )
+                    },
                     newCommand("Search", "Ctrl+K") {
                         selectedEditor?.beginSearchMode()
                     }
