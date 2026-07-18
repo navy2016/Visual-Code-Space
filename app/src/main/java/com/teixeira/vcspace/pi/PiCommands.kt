@@ -18,9 +18,45 @@ package com.teixeira.vcspace.pi
 object PiCommands {
     private const val PACKAGE = "@earendil-works/pi-coding-agent"
     private const val MARKER = "/home/.vcspace/pi-installed"
+    private const val NPM_CLI = "/usr/lib/node_modules/npm/bin/npm-cli.js"
+    private const val PI_CLI = "/usr/lib/node_modules/@earendil-works/pi-coding-agent/dist/cli.js"
+
+    private val npmHelpers: String = """
+        export NPM_CONFIG_REGISTRY="${'$'}{NPM_CONFIG_REGISTRY:-https://registry.npmmirror.com}"
+
+        run_npm() {
+          if [ -f "$NPM_CLI" ]; then
+            node "$NPM_CLI" "${'$'}@"
+          elif command -v npm >/dev/null 2>&1 && npm --version >/dev/null 2>&1; then
+            npm "${'$'}@"
+          else
+            echo '[VCSpace] npm is unavailable after apk install.'
+            echo '[VCSpace] Expected npm CLI: $NPM_CLI'
+            return 1
+          fi
+        }
+
+        install_pi_launcher() {
+          if [ -f "$PI_CLI" ]; then
+            rm -f /usr/bin/pi
+            printf '%s\n' \
+              '#!/bin/sh' \
+              'exec node /usr/lib/node_modules/@earendil-works/pi-coding-agent/dist/cli.js "${'$'}@"' \
+              > /usr/bin/pi
+            chmod +x /usr/bin/pi
+          else
+            echo '[VCSpace] Pi CLI was not found after npm install.'
+            echo '[VCSpace] Expected Pi CLI: $PI_CLI'
+            return 1
+          fi
+        }
+    """.trimIndent()
 
     val OPEN_PI: String = """
-        if command -v pi >/dev/null 2>&1; then
+        if [ -f "$PI_CLI" ]; then
+          echo '[VCSpace] Starting Pi with Visual Code Space bridge...'
+          node "$PI_CLI"
+        elif command -v pi >/dev/null 2>&1; then
           echo '[VCSpace] Starting Pi with Visual Code Space bridge...'
           pi
         else
@@ -32,8 +68,11 @@ object PiCommands {
     """.trimIndent()
 
     val INSTALL_PI: String = """
+        $npmHelpers
+
         echo '[VCSpace] Installing Node.js, npm, Git and Pi...'
-        if apk add --no-cache nodejs npm git && npm install -g --ignore-scripts $PACKAGE; then
+        echo "[VCSpace] npm registry: ${'$'}NPM_CONFIG_REGISTRY"
+        if apk add --no-cache nodejs npm git && run_npm install -g --ignore-scripts $PACKAGE && install_pi_launcher; then
           mkdir -p /home/.vcspace
           date -u +%FT%TZ > $MARKER
           echo '[VCSpace] Pi installed. Run `pi` or use Open Pi in Terminal.'
@@ -44,8 +83,11 @@ object PiCommands {
     """.trimIndent()
 
     val UPDATE_PI: String = """
+        $npmHelpers
+
         echo '[VCSpace] Updating Pi...'
-        if apk add --no-cache nodejs npm git && npm install -g --ignore-scripts $PACKAGE@latest; then
+        echo "[VCSpace] npm registry: ${'$'}NPM_CONFIG_REGISTRY"
+        if apk add --no-cache nodejs npm git && run_npm install -g --ignore-scripts $PACKAGE@latest && install_pi_launcher; then
           mkdir -p /home/.vcspace
           date -u +%FT%TZ > $MARKER
           echo '[VCSpace] Pi updated.'
@@ -56,9 +98,12 @@ object PiCommands {
     """.trimIndent()
 
     val REPAIR_PI: String = """
+        $npmHelpers
+
         echo '[VCSpace] Repairing Pi installation...'
+        echo "[VCSpace] npm registry: ${'$'}NPM_CONFIG_REGISTRY"
         apk fix || true
-        if apk add --no-cache nodejs npm git && (npm cache verify || true) && npm install -g --ignore-scripts --force $PACKAGE@latest; then
+        if apk add --no-cache nodejs npm git && (run_npm cache verify || true) && run_npm install -g --ignore-scripts --force $PACKAGE@latest && install_pi_launcher; then
           mkdir -p /home/.vcspace
           date -u +%FT%TZ > $MARKER
           echo '[VCSpace] Pi repair finished.'
