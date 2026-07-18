@@ -109,6 +109,10 @@ object Session {
                 writeText(assets.open("terminal/init.sh").bufferedReader().use { it.readText() })
                 setExecutable(true)
             }
+            bin.child("vcspace-pi-manager").apply {
+                writeText(assets.open("terminal/vcspace-pi-manager.sh").bufferedReader().use { it.readText() })
+                setExecutable(true)
+            }
 
             val shell = "/system/bin/sh"
             val prootCommand = prootCommandOverride ?: intent.getStringExtra(TerminalActivity.KEY_PROOT_COMMAND)
