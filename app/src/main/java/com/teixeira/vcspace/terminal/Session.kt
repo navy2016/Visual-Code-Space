@@ -75,6 +75,10 @@ object Session {
             val env = mutableListOf(
                 "PROOT_TMP_DIR=${tmpDir.absolutePath}",
                 "HOME=${home.absolutePath}",
+                "VCSPACE_HOME=${home.absolutePath}",
+                "PI_CODING_AGENT_DIR=${home.absolutePath}/.pi/agent",
+                "PI_CODING_AGENT_SESSION_DIR=${home.absolutePath}/.pi/agent/sessions",
+                "XDG_CACHE_HOME=${home.absolutePath}/.cache",
                 "PUBLIC_HOME=${getExternalFilesDir(null)?.absolutePath}",
                 "COLORTERM=truecolor",
                 "TERM=xterm-256color",

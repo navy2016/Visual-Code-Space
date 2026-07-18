@@ -22,7 +22,20 @@ object PiExtensionInstaller {
     private const val EXTENSION_FILE_NAME = "vcspace-bridge.ts"
 
     fun installOrUpdate(): File {
-        val extensionsDir = File(home, ".pi/agent/extensions").apply { mkdirs() }
+        val agentDir = File(home, ".pi/agent").apply { mkdirs() }
+        File(agentDir, "bin").mkdirs()
+        File(agentDir, "sessions").mkdirs()
+        File(agentDir, "auth.json").apply {
+            if (!exists()) {
+                writeText("{}\n")
+                setReadable(false, false)
+                setWritable(false, false)
+                setReadable(true, true)
+                setWritable(true, true)
+            }
+        }
+
+        val extensionsDir = File(agentDir, "extensions").apply { mkdirs() }
         return File(extensionsDir, EXTENSION_FILE_NAME).apply {
             writeText(extensionSource())
         }

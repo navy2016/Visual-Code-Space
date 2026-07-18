@@ -24,8 +24,14 @@ object PiInstaller {
     val markerFile: File
         get() = File(home, ".vcspace/pi-installed")
 
+    val agentDir: File
+        get() = File(home, ".pi/agent")
+
     val extensionFile: File
-        get() = File(home, ".pi/agent/extensions/vcspace-bridge.ts")
+        get() = File(agentDir, "extensions/vcspace-bridge.ts")
+
+    val authFile: File
+        get() = File(agentDir, "auth.json")
 
     private val possiblePiBinaries: List<File>
         get() = listOf(

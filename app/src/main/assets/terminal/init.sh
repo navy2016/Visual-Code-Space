@@ -16,8 +16,17 @@
 #https://github.com/Xed-Editor/Xed-Editor/blob/main/core/main/src/main/assets/terminal/init.sh
 # Keep terminal startup resilient: failed package bootstrap should not close the shell.
 
-export PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/share/bin:/usr/share/sbin:/usr/local/bin:/usr/local/sbin
+export PATH="$PREFIX/bin:/usr/local/bin:/bin:/sbin:/usr/bin:/usr/sbin:/usr/share/bin:/usr/share/sbin:/usr/local/sbin"
 export HOME=/home
+HOST_FILES_DIR="${PREFIX%/usr}"
+if [ "$HOST_FILES_DIR" = "$PREFIX" ]; then
+    HOST_FILES_DIR="$(dirname "$PREFIX")"
+fi
+export VCSPACE_HOME="${VCSPACE_HOME:-$HOST_FILES_DIR/home}"
+export PI_CODING_AGENT_DIR="${PI_CODING_AGENT_DIR:-$VCSPACE_HOME/.pi/agent}"
+export PI_CODING_AGENT_SESSION_DIR="${PI_CODING_AGENT_SESSION_DIR:-$PI_CODING_AGENT_DIR/sessions}"
+export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$VCSPACE_HOME/.cache}"
+mkdir -p "$PI_CODING_AGENT_DIR/extensions" "$PI_CODING_AGENT_DIR/bin" "$PI_CODING_AGENT_SESSION_DIR" "$XDG_CACHE_HOME"
 export PROMPT_DIRTRIM=2
 export PS1="\[\e[38;5;46m\]\u\[\033[39m\]@vcspace \[\033[39m\]\w \[\033[0m\]\\$ "
 START_SHELL="/bin/bash"

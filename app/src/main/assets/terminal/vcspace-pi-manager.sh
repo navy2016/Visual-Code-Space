@@ -1,15 +1,23 @@
 #!/bin/sh
 # Visual Code Space Pi manager. Runs inside the Android proot Alpine terminal.
 #
-# Important Android/proot note:
-# Some Node.js filesystem calls do not reliably see files that only exist inside
-# the fake Alpine root (for example /usr/lib/node_modules/...). Store npm and Pi
-# under the Android-side PREFIX bind mount and invoke Node with those real paths.
+# Android/proot note:
+# Node.js can fail to read files that only exist inside the fake Alpine root
+# (for example /usr/lib/node_modules or /home). Store npm, Pi, and Pi agent
+# state under the Android-side PREFIX bind mount and invoke Node with those real
+# PREFIX paths.
 
 PACKAGE="${PI_PACKAGE:-@earendil-works/pi-coding-agent}"
 HOST_PREFIX="${PREFIX:-/usr/local/vcspace}"
+HOST_FILES_DIR="${HOST_PREFIX%/usr}"
+if [ "$HOST_FILES_DIR" = "$HOST_PREFIX" ]; then
+  HOST_FILES_DIR="$(dirname "$HOST_PREFIX")"
+fi
+VCSPACE_HOME="${VCSPACE_HOME:-$HOST_FILES_DIR/home}"
 HOST_TMP="${TMPDIR:-$HOST_PREFIX/tmp}"
-MARKER="/home/.vcspace/pi-installed"
+AGENT_DIR="${PI_CODING_AGENT_DIR:-$VCSPACE_HOME/.pi/agent}"
+MARKER="$VCSPACE_HOME/.vcspace/pi-installed"
+LEGACY_MARKER="/home/.vcspace/pi-installed"
 NPM_VERSION="${NPM_VERSION:-11.6.4}"
 NPM_TARBALL="${NPM_TARBALL:-https://registry.npmmirror.com/npm/-/npm-${NPM_VERSION}.tgz}"
 NPM_ROOT="${NPM_ROOT:-$HOST_PREFIX/lib/node_modules/npm}"
@@ -21,6 +29,9 @@ export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-/usr/lib:/lib}"
 export NPM_CONFIG_REGISTRY="${NPM_CONFIG_REGISTRY:-https://registry.npmmirror.com}"
 export NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-$HOST_PREFIX}"
 export NPM_CONFIG_CACHE="${NPM_CONFIG_CACHE:-$HOST_PREFIX/var/npm-cache}"
+export PI_CODING_AGENT_DIR="$AGENT_DIR"
+export PI_CODING_AGENT_SESSION_DIR="${PI_CODING_AGENT_SESSION_DIR:-$AGENT_DIR/sessions}"
+export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$VCSPACE_HOME/.cache}"
 export TMPDIR="$HOST_TMP"
 export PATH="$HOST_PREFIX/bin:/usr/local/bin:/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/sbin"
 APK_REPOSITORY_BASE="${APK_REPOSITORY_BASE:-https://mirrors.aliyun.com/alpine/v3.22}"
@@ -34,8 +45,18 @@ prepare_host_dirs() {
     "$HOST_PREFIX/bin" \
     "$HOST_PREFIX/lib/node_modules" \
     "$HOST_PREFIX/var/npm-cache" \
+    "$HOST_PREFIX/var/cache" \
+    "$VCSPACE_HOME/.cache" \
     "$HOST_TMP" \
+    "$AGENT_DIR/extensions" \
+    "$AGENT_DIR/bin" \
+    "$PI_CODING_AGENT_SESSION_DIR" \
     /usr/local/bin
+
+  if [ ! -f "$AGENT_DIR/auth.json" ]; then
+    printf '{}\n' > "$AGENT_DIR/auth.json" 2>/dev/null || true
+    chmod 600 "$AGENT_DIR/auth.json" 2>/dev/null || true
+  fi
 }
 
 find_npm_cli() {
@@ -59,6 +80,9 @@ write_node_launcher() {
   printf '%s\n' \
     '#!/bin/sh' \
     'export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-/usr/lib:/lib}"' \
+    "export PI_CODING_AGENT_DIR='$AGENT_DIR'" \
+    "export PI_CODING_AGENT_SESSION_DIR='$PI_CODING_AGENT_SESSION_DIR'" \
+    "export XDG_CACHE_HOME='$XDG_CACHE_HOME'" \
     "exec /usr/bin/node '$target' \"\$@\"" \
     > "$launcher"
   chmod +x "$launcher"
@@ -177,14 +201,18 @@ install_pi_launcher() {
 }
 
 mark_installed() {
-  mkdir -p /home/.vcspace
+  mkdir -p "$(dirname "$MARKER")"
   date -u +%FT%TZ > "$MARKER"
+
+  mkdir -p "$(dirname "$LEGACY_MARKER")" 2>/dev/null || true
+  date -u +%FT%TZ > "$LEGACY_MARKER" 2>/dev/null || true
 }
 
 install_pi() {
   log "Installing Node.js, Git, npm and Pi..."
   log "npm registry: $NPM_CONFIG_REGISTRY"
   log "host prefix: $HOST_PREFIX"
+  log "agent dir: $AGENT_DIR"
   if install_base_packages && ensure_npm_ready && install_pi_package "$PACKAGE" && install_pi_launcher; then
     mark_installed
     log "Pi installed. Run 'pi' or use Open Pi in Terminal."
@@ -198,6 +226,7 @@ update_pi() {
   log "Updating Pi..."
   log "npm registry: $NPM_CONFIG_REGISTRY"
   log "host prefix: $HOST_PREFIX"
+  log "agent dir: $AGENT_DIR"
   if install_base_packages && ensure_npm_ready && install_pi_package "$PACKAGE@latest" && install_pi_launcher; then
     mark_installed
     log "Pi updated."
@@ -211,6 +240,7 @@ repair_pi() {
   log "Repairing Pi installation..."
   log "npm registry: $NPM_CONFIG_REGISTRY"
   log "host prefix: $HOST_PREFIX"
+  log "agent dir: $AGENT_DIR"
   if install_base_packages && ensure_npm_ready && (run_npm cache verify || true) && install_pi_package "$PACKAGE@latest" --force && install_pi_launcher; then
     mark_installed
     log "Pi repair finished."
@@ -221,6 +251,7 @@ repair_pi() {
 }
 
 open_pi() {
+  prepare_host_dirs
   if [ -f "$PI_CLI" ]; then
     log "Starting Pi with Visual Code Space bridge..."
     exec /usr/bin/node "$PI_CLI"
@@ -236,10 +267,14 @@ open_pi() {
 smoke() {
   log "Running Pi manager smoke test..."
   log "host prefix: $HOST_PREFIX"
+  log "agent dir: $AGENT_DIR"
   install_base_packages || return 1
   ensure_npm_ready || return 1
   /usr/bin/node --version
   run_npm --version || return 1
+  printf '{}\n' > "$AGENT_DIR/auth.json"
+  printf 'export default function vcspaceSmoke() {}\n' > "$AGENT_DIR/extensions/vcspace-bridge.ts"
+  /usr/bin/node -e 'const fs = require("fs"); for (const p of [process.env.PI_CODING_AGENT_DIR, `${process.env.PI_CODING_AGENT_DIR}/auth.json`, `${process.env.PI_CODING_AGENT_DIR}/extensions/vcspace-bridge.ts`, `${process.env.PI_CODING_AGENT_DIR}/bin`]) { if (!fs.existsSync(p)) { console.error(`missing ${p}`); process.exit(1); } }'
   log "Pi manager smoke test passed."
 }
 
