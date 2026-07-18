@@ -28,9 +28,13 @@ jobs:
         if: matrix.arch == 'aarch64'
         uses: docker/setup-qemu-action@v3
 
-      - name: Smoke test Pi manager in Alpine
+      - name: Smoke test Pi manager in Alpine with host-prefix bind
         run: |
+          mkdir -p "$PWD/.tmp/vcspace-prefix"
           docker run --rm --platform ${{ matrix.platform }} \
+            -e PREFIX=/mnt/vcspace-prefix \
+            -e APK_REPOSITORY_BASE=https://mirrors.aliyun.com/alpine/v3.22 \
+            -v "$PWD/.tmp/vcspace-prefix:/mnt/vcspace-prefix" \
             -v "$PWD/app/src/main/assets/terminal/vcspace-pi-manager.sh:/usr/bin/vcspace-pi-manager:ro" \
             alpine:3.22 \
-            /bin/sh -lc 'cp /usr/bin/vcspace-pi-manager /tmp/vcspace-pi-manager && chmod +x /tmp/vcspace-pi-manager && APK_REPOSITORY_BASE=https://mirrors.aliyun.com/alpine/v3.22 /tmp/vcspace-pi-manager smoke'
+            /bin/sh -lc 'cp /usr/bin/vcspace-pi-manager /tmp/vcspace-pi-manager && chmod +x /tmp/vcspace-pi-manager && /tmp/vcspace-pi-manager smoke'

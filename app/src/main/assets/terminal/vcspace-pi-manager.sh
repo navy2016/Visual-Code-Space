@@ -1,18 +1,41 @@
 #!/bin/sh
-# Visual Code Space Pi manager. Runs inside the Alpine/proot terminal.
+# Visual Code Space Pi manager. Runs inside the Android proot Alpine terminal.
+#
+# Important Android/proot note:
+# Some Node.js filesystem calls do not reliably see files that only exist inside
+# the fake Alpine root (for example /usr/lib/node_modules/...). Store npm and Pi
+# under the Android-side PREFIX bind mount and invoke Node with those real paths.
 
 PACKAGE="${PI_PACKAGE:-@earendil-works/pi-coding-agent}"
+HOST_PREFIX="${PREFIX:-/usr/local/vcspace}"
+HOST_TMP="${TMPDIR:-$HOST_PREFIX/tmp}"
 MARKER="/home/.vcspace/pi-installed"
 NPM_VERSION="${NPM_VERSION:-11.6.4}"
 NPM_TARBALL="${NPM_TARBALL:-https://registry.npmmirror.com/npm/-/npm-${NPM_VERSION}.tgz}"
-NPM_CLI="/usr/lib/node_modules/npm/bin/npm-cli.js"
-PI_CLI="/usr/lib/node_modules/@earendil-works/pi-coding-agent/dist/cli.js"
+NPM_ROOT="${NPM_ROOT:-$HOST_PREFIX/lib/node_modules/npm}"
+NPM_CLI="$NPM_ROOT/bin/npm-cli.js"
+PI_ROOT="${PI_ROOT:-$HOST_PREFIX/lib/node_modules/@earendil-works/pi-coding-agent}"
+PI_CLI="$PI_ROOT/dist/cli.js"
+
 export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-/usr/lib:/lib}"
 export NPM_CONFIG_REGISTRY="${NPM_CONFIG_REGISTRY:-https://registry.npmmirror.com}"
-export NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-/usr}"
+export NPM_CONFIG_PREFIX="${NPM_CONFIG_PREFIX:-$HOST_PREFIX}"
+export NPM_CONFIG_CACHE="${NPM_CONFIG_CACHE:-$HOST_PREFIX/var/npm-cache}"
+export TMPDIR="$HOST_TMP"
+export PATH="$HOST_PREFIX/bin:/usr/local/bin:/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/sbin"
+APK_REPOSITORY_BASE="${APK_REPOSITORY_BASE:-https://mirrors.aliyun.com/alpine/v3.22}"
 
 log() {
   echo "[VCSpace] $*"
+}
+
+prepare_host_dirs() {
+  mkdir -p \
+    "$HOST_PREFIX/bin" \
+    "$HOST_PREFIX/lib/node_modules" \
+    "$HOST_PREFIX/var/npm-cache" \
+    "$HOST_TMP" \
+    /usr/local/bin
 }
 
 find_npm_cli() {
@@ -22,31 +45,50 @@ find_npm_cli() {
   fi
 
   if [ -x /usr/bin/find ]; then
-    /usr/bin/find /usr/lib /usr/local/lib -path '*/npm-cli.js' -type f 2>/dev/null | head -n 1
+    /usr/bin/find "$HOST_PREFIX/lib/node_modules" -path '*/npm-cli.js' -type f 2>/dev/null | head -n 1
   else
-    find /usr/lib /usr/local/lib -path '*/npm-cli.js' -type f 2>/dev/null | head -n 1
+    find "$HOST_PREFIX/lib/node_modules" -path '*/npm-cli.js' -type f 2>/dev/null | head -n 1
   fi
+}
+
+write_node_launcher() {
+  launcher="$1"
+  target="$2"
+  mkdir -p "$(dirname "$launcher")"
+  rm -f "$launcher"
+  printf '%s\n' \
+    '#!/bin/sh' \
+    'export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-/usr/lib:/lib}"' \
+    "exec /usr/bin/node '$target' \"\$@\"" \
+    > "$launcher"
+  chmod +x "$launcher"
 }
 
 write_npm_launcher() {
   if [ -f "$NPM_CLI" ]; then
-    rm -f /usr/bin/npm /usr/bin/npx
-    printf '%s\n' '#!/bin/sh' 'export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-/usr/lib:/lib}"' 'exec /usr/bin/node /usr/lib/node_modules/npm/bin/npm-cli.js "$@"' > /usr/bin/npm
-    printf '%s\n' '#!/bin/sh' 'export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-/usr/lib:/lib}"' 'exec /usr/bin/node /usr/lib/node_modules/npm/bin/npx-cli.js "$@"' > /usr/bin/npx
-    chmod +x /usr/bin/npm /usr/bin/npx
+    write_node_launcher "$HOST_PREFIX/bin/npm" "$NPM_CLI"
+    write_node_launcher "$HOST_PREFIX/bin/npx" "$NPM_ROOT/bin/npx-cli.js"
+    write_node_launcher "/usr/local/bin/npm" "$NPM_CLI"
+    write_node_launcher "/usr/local/bin/npx" "$NPM_ROOT/bin/npx-cli.js"
+  fi
+}
+
+configure_apk_repositories() {
+  if [ -n "$APK_REPOSITORY_BASE" ] && [ -d /etc/apk ]; then
+    printf "%s/main\n%s/community\n" "$APK_REPOSITORY_BASE" "$APK_REPOSITORY_BASE" > /etc/apk/repositories
   fi
 }
 
 install_base_packages() {
+  configure_apk_repositories
   apk add --no-cache nodejs git ca-certificates wget tar gzip findutils
 }
 
 install_npm_from_registry() {
   log "Installing standalone npm bundle from registry mirror..."
-  npm_tmp="$(mktemp -d /tmp/vcspace-npm-registry.XXXXXX)" || return 1
+  prepare_host_dirs
+  npm_tmp="$(mktemp -d "$HOST_TMP/vcspace-npm-registry.XXXXXX")" || return 1
   npm_tgz="$npm_tmp/npm.tgz"
-  npm_unpack="$npm_tmp/unpack"
-  mkdir -p "$npm_unpack"
 
   if ! wget -q -O "$npm_tgz" "$NPM_TARBALL"; then
     log "Failed to download standalone npm bundle: $NPM_TARBALL"
@@ -54,33 +96,20 @@ install_npm_from_registry() {
     return 1
   fi
 
-  rm -rf /usr/lib/node_modules/npm
-  mkdir -p /usr/lib/node_modules/npm
+  rm -rf "$NPM_ROOT"
+  mkdir -p "$NPM_ROOT"
 
-  if [ -x /usr/bin/tar ]; then
-    if ! /usr/bin/tar -xzf "$npm_tgz" -C /usr/lib/node_modules/npm --strip-components=1; then
-      log "Failed to unpack standalone npm bundle with GNU tar."
-      rm -rf "$npm_tmp" /usr/lib/node_modules/npm
-      return 1
-    fi
-  else
-    if ! tar -xzf "$npm_tgz" -C "$npm_unpack"; then
-      log "Failed to unpack standalone npm bundle."
-      rm -rf "$npm_tmp" /usr/lib/node_modules/npm
-      return 1
-    fi
-    cp -R "$npm_unpack/package/." /usr/lib/node_modules/npm/ || {
-      log "Failed to copy standalone npm bundle."
-      rm -rf "$npm_tmp" /usr/lib/node_modules/npm
-      return 1
-    }
+  if ! /usr/bin/tar -xzf "$npm_tgz" -C "$NPM_ROOT" --strip-components=1; then
+    log "Failed to unpack standalone npm bundle with GNU tar."
+    rm -rf "$npm_tmp" "$NPM_ROOT"
+    return 1
   fi
 
   rm -rf "$npm_tmp"
   if [ ! -f "$NPM_CLI" ]; then
     log "Standalone npm bundle did not create $NPM_CLI"
-    ls -la /usr/lib/node_modules/npm 2>/dev/null || true
-    ls -la /usr/lib/node_modules/npm/bin 2>/dev/null || true
+    ls -la "$NPM_ROOT" 2>/dev/null || true
+    ls -la "$NPM_ROOT/bin" 2>/dev/null || true
     return 1
   fi
 
@@ -88,6 +117,7 @@ install_npm_from_registry() {
 }
 
 ensure_npm_ready() {
+  prepare_host_dirs
   npm_cli="$(find_npm_cli)"
   if [ -n "$npm_cli" ] && /usr/bin/node "$npm_cli" --version >/dev/null 2>&1; then
     write_npm_launcher
@@ -104,6 +134,10 @@ ensure_npm_ready() {
   fi
 
   log "npm CLI repair failed. Expected npm CLI: $NPM_CLI"
+  if [ -n "$npm_cli" ]; then
+    log "Found npm CLI candidate: $npm_cli"
+    /usr/bin/node "$npm_cli" --version || true
+  fi
   return 1
 }
 
@@ -117,11 +151,17 @@ run_npm() {
   fi
 }
 
+install_pi_package() {
+  requested_package="$1"
+  shift || true
+  prepare_host_dirs
+  run_npm install -g --ignore-scripts "$@" "$requested_package"
+}
+
 install_pi_launcher() {
   if [ -f "$PI_CLI" ]; then
-    rm -f /usr/bin/pi
-    printf '%s\n' '#!/bin/sh' 'export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-/usr/lib:/lib}"' 'exec /usr/bin/node /usr/lib/node_modules/@earendil-works/pi-coding-agent/dist/cli.js "$@"' > /usr/bin/pi
-    chmod +x /usr/bin/pi
+    write_node_launcher "$HOST_PREFIX/bin/pi" "$PI_CLI"
+    write_node_launcher "/usr/local/bin/pi" "$PI_CLI"
     return 0
   fi
 
@@ -137,7 +177,8 @@ mark_installed() {
 install_pi() {
   log "Installing Node.js, Git, npm and Pi..."
   log "npm registry: $NPM_CONFIG_REGISTRY"
-  if install_base_packages && ensure_npm_ready && run_npm install -g --ignore-scripts "$PACKAGE" && install_pi_launcher; then
+  log "host prefix: $HOST_PREFIX"
+  if install_base_packages && ensure_npm_ready && install_pi_package "$PACKAGE" && install_pi_launcher; then
     mark_installed
     log "Pi installed. Run 'pi' or use Open Pi in Terminal."
     return 0
@@ -149,7 +190,8 @@ install_pi() {
 update_pi() {
   log "Updating Pi..."
   log "npm registry: $NPM_CONFIG_REGISTRY"
-  if install_base_packages && ensure_npm_ready && run_npm install -g --ignore-scripts "$PACKAGE@latest" && install_pi_launcher; then
+  log "host prefix: $HOST_PREFIX"
+  if install_base_packages && ensure_npm_ready && install_pi_package "$PACKAGE@latest" && install_pi_launcher; then
     mark_installed
     log "Pi updated."
     return 0
@@ -161,7 +203,8 @@ update_pi() {
 repair_pi() {
   log "Repairing Pi installation..."
   log "npm registry: $NPM_CONFIG_REGISTRY"
-  if install_base_packages && ensure_npm_ready && (run_npm cache verify || true) && run_npm install -g --ignore-scripts --force "$PACKAGE@latest" && install_pi_launcher; then
+  log "host prefix: $HOST_PREFIX"
+  if install_base_packages && ensure_npm_ready && (run_npm cache verify || true) && install_pi_package "$PACKAGE@latest" --force && install_pi_launcher; then
     mark_installed
     log "Pi repair finished."
     return 0
@@ -185,6 +228,7 @@ open_pi() {
 
 smoke() {
   log "Running Pi manager smoke test..."
+  log "host prefix: $HOST_PREFIX"
   install_base_packages || return 1
   ensure_npm_ready || return 1
   /usr/bin/node --version
