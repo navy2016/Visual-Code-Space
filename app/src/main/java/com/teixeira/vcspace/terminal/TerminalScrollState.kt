@@ -11,8 +11,10 @@ package com.teixeira.vcspace.terminal
 import com.termux.view.TerminalView
 
 object TerminalScrollState {
-    private val topRowField by lazy {
-        TerminalView::class.java.getDeclaredField("mTopRow").apply { isAccessible = true }
+    private val topRowFieldRef by lazy {
+        runCatching {
+            TerminalView::class.java.getDeclaredField("mTopRow").apply { isAccessible = true }
+        }.getOrNull()
     }
 
     fun preserveUserScrollOnUpdate(terminal: TerminalView) {
@@ -20,19 +22,28 @@ object TerminalScrollState {
             terminal.onScreenUpdated()
             return
         }
+        val topRowField = topRowFieldRef ?: run {
+            terminal.onScreenUpdated()
+            return
+        }
         val previousTopRow = runCatching { topRowField.getInt(terminal) }.getOrDefault(0)
-        val scrollCounter = runCatching { emulator.scrollCounter }.getOrDefault(0)
-        val preserveHistoryPosition = previousTopRow < 0 && !terminal.isSelectingText
-        val rowsInHistory = runCatching { emulator.screen.activeTranscriptRows }.getOrDefault(0)
+        val isReadingHistory = previousTopRow < 0 && !terminal.isSelectingText
 
-        terminal.onScreenUpdated()
+        if (!isReadingHistory) {
+            terminal.onScreenUpdated()
+            return
+        }
 
-        if (preserveHistoryPosition) {
-            val restoredTopRow = (previousTopRow - scrollCounter).coerceIn(-rowsInHistory, 0)
-            runCatching {
-                topRowField.setInt(terminal, restoredTopRow)
-                terminal.invalidate()
-            }
+        val scrollCounter = runCatching { emulator.getScrollCounter() }.getOrDefault(0)
+        val rowsInHistory = runCatching { emulator.getScreen().getActiveTranscriptRows() }.getOrDefault(0)
+        val restoredTopRow = (previousTopRow - scrollCounter).coerceIn(-rowsInHistory, 0)
+
+        runCatching {
+            topRowField.setInt(terminal, restoredTopRow)
+            emulator.clearScrollCounter()
+            terminal.postInvalidateOnAnimation()
+        }.onFailure {
+            terminal.onScreenUpdated()
         }
     }
 }

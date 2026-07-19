@@ -87,6 +87,7 @@ import com.teixeira.vcspace.keyboard.model.Command.Companion.newCommand
 import com.teixeira.vcspace.plugins.PluginLoader
 import com.teixeira.vcspace.plugins.impl.PluginContextImpl
 import com.teixeira.vcspace.ui.components.ai.GenerateContentDialog
+import com.teixeira.vcspace.ui.gestures.openDrawerOnSwipe
 import com.teixeira.vcspace.ui.screens.editor.EditorScreen
 import com.teixeira.vcspace.ui.screens.editor.EditorViewModel
 import com.teixeira.vcspace.ui.screens.editor.components.EditorDrawerSheet
@@ -211,7 +212,12 @@ class EditorActivity : BaseComposeActivity() {
                 }
             ) {
                 Scaffold(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .openDrawerOnSwipe(
+                            drawerState = drawerState,
+                            enabled = enableGestureInDrawer
+                        ),
                     topBar = {
                         EditorTopBar(
                             editorViewModel = editorViewModel

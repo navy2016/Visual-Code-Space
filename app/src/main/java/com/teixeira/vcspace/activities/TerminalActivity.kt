@@ -237,6 +237,11 @@ class TerminalActivity : ComponentActivity() {
                         )
                     }
                 }
+            } else if (!isBound || terminalBinder == null) {
+                Text(
+                    text = "Starting terminal service...",
+                    style = MaterialTheme.typography.bodyLarge
+                )
             } else {
                 Terminal(terminalActivity = this@TerminalActivity)
 

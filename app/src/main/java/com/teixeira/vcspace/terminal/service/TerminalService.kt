@@ -40,6 +40,8 @@ import kotlinx.coroutines.runBlocking
 // https://github.com/Xed-Editor/Xed-Editor/blob/main/core/main/src/main/java/com/rk/xededitor/service/SessionService.kt
 class TerminalService : Service() {
     private val sessions = hashMapOf<String, TerminalSession>()
+    private val sessionWorkingDirectories = hashMapOf<String, String>()
+    private val sessionCommands = hashMapOf<String, String?>()
     val sessionList = mutableStateListOf<String>()
     var currentSession = mutableStateOf("main")
 
@@ -87,13 +89,16 @@ class TerminalService : Service() {
                 sessionId = id,
                 prootCommandOverride = prootCommand,
                 workingDirectoryOverride = workingDirectory
-            ).also {
-                sessions[id]?.finishIfRunning()
-                sessions[id] = it
+            ).also { session ->
+                val oldSession = sessions.put(id, session)
+                session.mSessionName = id
+                sessionWorkingDirectories[id] = workingDirectory ?: activity.workingDirectory
+                sessionCommands[id] = prootCommand
                 if (id !in sessionList) {
                     sessionList.add(id)
                 }
                 updateNotification()
+                oldSession?.finishIfRunning()
             }
         }
 
@@ -101,13 +106,58 @@ class TerminalService : Service() {
             return sessions[id]
         }
 
+        fun getSessionWorkingDirectory(id: String): String? {
+            return sessionWorkingDirectories[id]
+        }
+
+        fun getSessionCommand(id: String): String? {
+            return sessionCommands[id]
+        }
+
+        fun renameSession(oldId: String, newId: String): Boolean {
+            val normalized = newId.trim()
+            if (normalized.isBlank() || oldId !in sessions) return false
+            if (normalized == oldId) return true
+            if (normalized in sessions) return false
+
+            val session = sessions.remove(oldId) ?: return false
+            val workingDirectory = sessionWorkingDirectories.remove(oldId)
+            val command = sessionCommands.remove(oldId)
+            sessions[normalized] = session
+            if (workingDirectory != null) {
+                sessionWorkingDirectories[normalized] = workingDirectory
+            }
+            sessionCommands[normalized] = command
+            val index = sessionList.indexOf(oldId)
+            if (index >= 0) {
+                sessionList[index] = normalized
+            }
+            if (currentSession.value == oldId) {
+                currentSession.value = normalized
+            }
+            session.mSessionName = normalized
+            updateNotification()
+            return true
+        }
+
+        fun pinSession(id: String): Boolean {
+            val index = sessionList.indexOf(id)
+            if (index <= 0) return index == 0
+            sessionList.removeAt(index)
+            sessionList.add(0, id)
+            updateNotification()
+            return true
+        }
+
         fun terminateSession(id: String) {
-            sessions[id]?.finishIfRunning()
-            sessions.remove(id)
+            val session = sessions.remove(id)
+            sessionWorkingDirectories.remove(id)
+            sessionCommands.remove(id)
             sessionList.remove(id)
             if (currentSession.value == id) {
                 currentSession.value = sessionList.lastOrNull() ?: "main"
             }
+            session?.finishIfRunning()
             updateNotification()
         }
     }

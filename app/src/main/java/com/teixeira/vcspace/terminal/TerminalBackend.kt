@@ -46,13 +46,9 @@ class TerminalBackend(
     override fun onTitleChanged(changedSession: TerminalSession) {}
 
     override fun onSessionFinished(finishedSession: TerminalSession) {
-        activity.terminalBinder?.terminateSession(activity.terminalBinder!!.service.currentSession.value)
-        if (activity.terminalBinder!!.service.sessionList.isEmpty()) {
-            //activity.finish()
-        } else {
-            val sessionId = activity.terminalBinder!!.service.sessionList.last()
-            changeSession(activity, sessionId)
-        }
+        val service = activity.terminalBinder?.service ?: return
+        val sessionId = finishedSession.mSessionName?.takeIf { it in service.sessionList } ?: return
+        deleteSession(activity, sessionId)
     }
 
     override fun onCopyTextToClipboard(session: TerminalSession, text: String) {
@@ -135,13 +131,11 @@ class TerminalBackend(
 
     override fun onKeyDown(keyCode: Int, e: KeyEvent, session: TerminalSession): Boolean {
         if (keyCode == KeyEvent.KEYCODE_ENTER && !session.isRunning) {
-            activity.terminalBinder?.terminateSession(activity.terminalBinder!!.service.currentSession.value)
-            if (activity.terminalBinder!!.service.sessionList.isEmpty()) {
-                activity.finish()
-            } else {
-                val sessionId = activity.terminalBinder!!.service.sessionList.last()
-                changeSession(activity, sessionId)
-            }
+            val service = activity.terminalBinder?.service ?: return true
+            val sessionId = session.mSessionName
+                ?.takeIf { it in service.sessionList }
+                ?: service.currentSession.value
+            deleteSession(activity, sessionId)
             return true
         }
         return false
