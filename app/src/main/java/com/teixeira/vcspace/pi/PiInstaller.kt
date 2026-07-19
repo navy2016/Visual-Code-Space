@@ -33,6 +33,9 @@ object PiInstaller {
     val authFile: File
         get() = File(agentDir, "auth.json")
 
+    private val piCli: File
+        get() = File(prefix, "lib/node_modules/@earendil-works/pi-coding-agent/dist/cli.js")
+
     private val possiblePiBinaries: List<File>
         get() = listOf(
             File(alpineDir, "usr/bin/pi"),
@@ -43,6 +46,7 @@ object PiInstaller {
     private val possibleNodeBinaries: List<File>
         get() = listOf(
             File(alpineDir, "usr/bin/node"),
+            File(alpineDir, "bin/node"),
             File(prefix, "bin/node")
         )
 
@@ -61,7 +65,7 @@ object PiInstaller {
     val npmBinary: File
         get() = possibleNpmBinaries.firstOrNull { it.exists() } ?: possibleNpmBinaries.first()
 
-    fun isPiInstalled(): Boolean = possiblePiBinaries.any { it.exists() } || markerFile.exists()
+    fun isPiInstalled(): Boolean = piCli.exists()
 
     fun isNodeInstalled(): Boolean =
         possibleNodeBinaries.any { it.exists() } || possibleNpmBinaries.any { it.exists() }

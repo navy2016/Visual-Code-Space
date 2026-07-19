@@ -18,6 +18,8 @@ package com.teixeira.vcspace.agent
 import android.content.Context
 import android.content.Intent
 import com.teixeira.vcspace.activities.TerminalActivity
+import com.teixeira.vcspace.file.FileAccessCheck
+import com.teixeira.vcspace.file.WorkspaceAccessManager
 import com.teixeira.vcspace.file.wrapFile
 import com.teixeira.vcspace.pi.PiCommands
 import kotlinx.coroutines.Dispatchers
@@ -33,7 +35,6 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
-import java.io.File
 
 object BuiltInAgentTools {
     private const val PROVIDER = "vcspace"
@@ -141,6 +142,15 @@ object BuiltInAgentTools {
             AgentToolResult.text(AgentEditorBridge.getWorkspaceRootPath() ?: "")
         },
         SimpleAgentTool(
+            name = "workspace_list_roots",
+            label = "List Allowed Workspace Roots",
+            description = "List app-internal, terminal workspace, opened workspace, and user-authorized external roots available to agents.",
+            parameters = AgentToolSchemas.listRoots,
+            permissions = setOf(AgentToolPermission.READ_WORKSPACE)
+        ) {
+            listAllowedRoots(context)
+        },
+        SimpleAgentTool(
             name = "workspace_list_files",
             label = "List Workspace Files",
             description = "List files under a workspace or Android-accessible directory.",
@@ -148,6 +158,7 @@ object BuiltInAgentTools {
             permissions = setOf(AgentToolPermission.READ_WORKSPACE)
         ) { args ->
             listFiles(
+                context = context,
                 path = args.string("path") ?: AgentEditorBridge.getWorkspaceRootPath(),
                 recursive = args.boolean("recursive") ?: false,
                 maxEntries = args.int("max_entries") ?: 200
@@ -279,37 +290,66 @@ object BuiltInAgentTools {
         return AgentToolResult.text(text, data)
     }
 
-    private suspend fun listFiles(path: String?, recursive: Boolean, maxEntries: Int): AgentToolResult =
-        withContext(Dispatchers.IO) {
-            if (path.isNullOrBlank()) {
-                return@withContext AgentToolResult.error("No workspace root or path provided")
-            }
-
-            val root = File(path)
-            if (!root.exists() || !root.isDirectory) {
-                return@withContext AgentToolResult.error("Directory does not exist: $path")
-            }
-
-            val limit = maxEntries.coerceIn(1, 2000)
-            val files = if (recursive) {
-                root.walkTopDown().drop(1).take(limit).toList()
-            } else {
-                root.listFiles()?.take(limit).orEmpty()
-            }
-
-            val text = files.joinToString("\n") { file ->
-                val type = if (file.isDirectory) "dir" else "file"
-                "[$type] ${file.absolutePath}"
-            }.ifBlank { "Directory is empty: ${root.absolutePath}" }
-
-            AgentToolResult.text(text)
+    private fun listAllowedRoots(context: Context): AgentToolResult {
+        val roots = WorkspaceAccessManager.roots(
+            context = context,
+            workspaceRoot = AgentEditorBridge.getWorkspaceRootPath(),
+            terminalWorkingDirectory = WorkspaceAccessManager.terminalWorkingRoot(context).absolutePath
+        )
+        val text = roots.joinToString("\n") { root ->
+            "${root.id}: ${root.path} (${root.label})"
         }
+        return AgentToolResult.text(text)
+    }
+
+    private suspend fun listFiles(
+        context: Context,
+        path: String?,
+        recursive: Boolean,
+        maxEntries: Int
+    ): AgentToolResult = withContext(Dispatchers.IO) {
+        val root = when (val check = WorkspaceAccessManager.requireAllowedPath(
+            context = context,
+            path = path,
+            workspaceRoot = AgentEditorBridge.getWorkspaceRootPath(),
+            terminalWorkingDirectory = WorkspaceAccessManager.terminalWorkingRoot(context).absolutePath
+        )) {
+            is FileAccessCheck.Allowed -> check.file
+            is FileAccessCheck.Denied -> return@withContext AgentToolResult.error(check.reason)
+        }
+
+        if (!root.exists() || !root.isDirectory) {
+            return@withContext AgentToolResult.error("Directory does not exist: ${root.absolutePath}")
+        }
+
+        val limit = maxEntries.coerceIn(1, 2000)
+        val files = if (recursive) {
+            root.walkTopDown().drop(1).take(limit).toList()
+        } else {
+            root.listFiles()?.take(limit).orEmpty()
+        }
+
+        val text = files.joinToString("\n") { file ->
+            val type = if (file.isDirectory) "dir" else "file"
+            "[$type] ${file.absolutePath}"
+        }.ifBlank { "Directory is empty: ${root.absolutePath}" }
+
+        AgentToolResult.text(text)
+    }
 
     private suspend fun readFile(context: Context, path: String): AgentToolResult =
         withContext(Dispatchers.IO) {
-            val file = File(path)
+            val file = when (val check = WorkspaceAccessManager.requireAllowedPath(
+                context = context,
+                path = path,
+                workspaceRoot = AgentEditorBridge.getWorkspaceRootPath(),
+                terminalWorkingDirectory = WorkspaceAccessManager.terminalWorkingRoot(context).absolutePath
+            )) {
+                is FileAccessCheck.Allowed -> check.file
+                is FileAccessCheck.Denied -> return@withContext AgentToolResult.error(check.reason)
+            }
             if (!file.exists() || !file.isFile) {
-                return@withContext AgentToolResult.error("File does not exist: $path")
+                return@withContext AgentToolResult.error("File does not exist: ${file.absolutePath}")
             }
 
             AgentToolResult.text(file.wrapFile().readFile2String(context) ?: "")
@@ -317,7 +357,16 @@ object BuiltInAgentTools {
 
     private suspend fun writeFile(context: Context, path: String, content: String): AgentToolResult =
         withContext(Dispatchers.IO) {
-            val file = File(path)
+            val file = when (val check = WorkspaceAccessManager.requireAllowedPath(
+                context = context,
+                path = path,
+                write = true,
+                workspaceRoot = AgentEditorBridge.getWorkspaceRootPath(),
+                terminalWorkingDirectory = WorkspaceAccessManager.terminalWorkingRoot(context).absolutePath
+            )) {
+                is FileAccessCheck.Allowed -> check.file
+                is FileAccessCheck.Denied -> return@withContext AgentToolResult.error(check.reason)
+            }
             file.parentFile?.mkdirs()
             val ok = file.wrapFile().write(context, content)
             if (ok) AgentToolResult.text("Wrote file: ${file.absolutePath}")

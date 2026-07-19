@@ -4,7 +4,11 @@ on:
   pull_request:
     branches: [ "main" ]
     paths:
+      - 'app/src/main/assets/terminal/init.sh'
+      - 'app/src/main/assets/terminal/init-host.sh'
       - 'app/src/main/assets/terminal/vcspace-pi-manager.sh'
+      - 'app/src/main/java/com/teixeira/vcspace/activities/TerminalActivity.kt'
+      - 'app/src/main/java/com/teixeira/vcspace/terminal/TarGzExtractor.kt'
       - '.github/workflows/pi-manager-smoke.yml'
   workflow_dispatch:
 
@@ -27,6 +31,13 @@ jobs:
       - name: Set up QEMU
         if: matrix.arch == 'aarch64'
         uses: docker/setup-qemu-action@v3
+
+      - name: Alpine minirootfs symlink layout smoke
+        if: matrix.arch == 'aarch64'
+        run: |
+          curl -fsSL https://mirrors.aliyun.com/alpine/v3.22/releases/aarch64/alpine-minirootfs-3.22.1-aarch64.tar.gz -o /tmp/alpine-aarch64.tar.gz
+          tar -tvzf /tmp/alpine-aarch64.tar.gz | grep -F './usr/bin/yes -> /bin/busybox'
+          tar -tvzf /tmp/alpine-aarch64.tar.gz | grep -F './bin/sh -> /bin/busybox'
 
       - name: Smoke test Pi manager in Alpine with Android-like bind paths
         run: |

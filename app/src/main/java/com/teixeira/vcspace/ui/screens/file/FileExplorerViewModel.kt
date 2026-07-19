@@ -24,6 +24,7 @@ import com.teixeira.vcspace.compose.ui.filetree.createFileTreeFromPath
 import com.teixeira.vcspace.events.OnOpenFolderEvent
 import com.teixeira.vcspace.events.OnRefreshFolderEvent
 import com.teixeira.vcspace.file.File
+import com.teixeira.vcspace.file.WorkspaceAccessManager
 import com.teixeira.vcspace.git.GitManager
 import com.teixeira.vcspace.preferences.defaultPrefs
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -52,24 +53,27 @@ class FileExplorerViewModel : ViewModel() {
     }
 
     fun openFolder(path: File) {
-        defaultPrefs.edit(commit = true) {
-            putString(
-                PreferenceKeys.RECENT_FOLDER_5,
-                defaultPrefs.getString(PreferenceKeys.RECENT_FOLDER_4, "")
-            )
-            putString(
-                PreferenceKeys.RECENT_FOLDER_4,
-                defaultPrefs.getString(PreferenceKeys.RECENT_FOLDER_3, "")
-            )
-            putString(
-                PreferenceKeys.RECENT_FOLDER_3,
-                defaultPrefs.getString(PreferenceKeys.RECENT_FOLDER_2, "")
-            )
-            putString(
-                PreferenceKeys.RECENT_FOLDER_2,
-                defaultPrefs.getString(PreferenceKeys.RECENT_FOLDER_1, "")
-            )
-            putString(PreferenceKeys.RECENT_FOLDER_1, path.absolutePath)
+        WorkspaceAccessManager.rememberAuthorizedDir(path.asRawFile()?.absolutePath ?: path.absolutePath)
+        if (path.canRestoreFromPath) {
+            defaultPrefs.edit(commit = true) {
+                putString(
+                    PreferenceKeys.RECENT_FOLDER_5,
+                    defaultPrefs.getString(PreferenceKeys.RECENT_FOLDER_4, "")
+                )
+                putString(
+                    PreferenceKeys.RECENT_FOLDER_4,
+                    defaultPrefs.getString(PreferenceKeys.RECENT_FOLDER_3, "")
+                )
+                putString(
+                    PreferenceKeys.RECENT_FOLDER_3,
+                    defaultPrefs.getString(PreferenceKeys.RECENT_FOLDER_2, "")
+                )
+                putString(
+                    PreferenceKeys.RECENT_FOLDER_2,
+                    defaultPrefs.getString(PreferenceKeys.RECENT_FOLDER_1, "")
+                )
+                putString(PreferenceKeys.RECENT_FOLDER_1, path.absolutePath)
+            }
         }
         _openedFolder.update { path }
         EventBus.getDefault().post(OnOpenFolderEvent(path))

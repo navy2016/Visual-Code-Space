@@ -62,8 +62,8 @@ fun TerminalSettingsScreen(
             title = { Text("Output font size") },
             defaultValue = fontSize.value,
             rememberState = { fontSize },
-            valueRange = 12f..40f,
-            valueSteps = 27,
+            valueRange = 23f..88f,
+            valueSteps = 64,
             valueText = { Text("${it.fastRoundToInt()} sp") },
             icon = { Icon(Icons.Default.TextFields, contentDescription = null) },
             modifier = Modifier
@@ -74,10 +74,10 @@ fun TerminalSettingsScreen(
         textFieldPreference(
             key = OUTPUT_WIDTH_PERCENT.name,
             title = { Text("Output width") },
-            summary = { Text("${it.coerceIn(60, 100)}%") },
+            summary = { Text("${it.coerceIn(50, 200)}%") },
             rememberState = { outputWidth },
             defaultValue = 100,
-            textToValue = { it.toIntOrNull()?.coerceIn(60, 100) },
+            textToValue = { it.toIntOrNull()?.coerceIn(50, 200) },
             icon = { Icon(Icons.Default.Code, contentDescription = null) },
             modifier = Modifier
                 .clip(PreferenceShape.Bottom)

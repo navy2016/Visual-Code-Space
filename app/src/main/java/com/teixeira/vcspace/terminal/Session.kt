@@ -18,6 +18,8 @@ package com.teixeira.vcspace.terminal
 import com.teixeira.vcspace.activities.TerminalActivity
 import com.teixeira.vcspace.extensions.child
 import com.teixeira.vcspace.extensions.tmpDir
+import com.teixeira.vcspace.file.FileAccessCheck
+import com.teixeira.vcspace.file.WorkspaceAccessManager
 import com.termux.terminal.TerminalEmulator
 import com.termux.terminal.TerminalSession
 import com.termux.terminal.TerminalSessionClient
@@ -27,10 +29,10 @@ import java.io.File
 object Session {
     private fun shellQuote(value: String): String = "'${value.replace("'", "'\\''")}'"
 
-    private fun shellWorkingDir(path: String): String = when {
-        path.startsWith("/storage") || path.startsWith("/sdcard") -> path
+    private fun shellWorkingDir(path: String, terminalWorkDir: File): String = when {
+        path.startsWith(terminalWorkDir.absolutePath) -> "/workspace" + path.removePrefix(terminalWorkDir.absolutePath)
         path == home.absolutePath -> "/home"
-        else -> "/home"
+        else -> "/workspace"
     }
 
     fun createSession(
@@ -63,6 +65,20 @@ object Session {
                 home.absolutePath
             }
 
+            val defaultTerminalWorkDir = WorkspaceAccessManager.terminalWorkingRoot(activity)
+            val requestedTerminalWorkDir = if (workingDir != home.absolutePath) {
+                when (val check = WorkspaceAccessManager.requireAllowedPath(
+                    context = activity,
+                    path = workingDir,
+                    terminalWorkingDirectory = defaultTerminalWorkDir.absolutePath
+                )) {
+                    is FileAccessCheck.Allowed -> check.file.takeIf { it.isDirectory && it.canRead() }
+                    is FileAccessCheck.Denied -> null
+                }
+            } else {
+                null
+            }
+            val terminalWorkDir = requestedTerminalWorkDir ?: defaultTerminalWorkDir
             val tmpDir = File(activity.tmpDir, "terminal/$sessionId")
 
             if (tmpDir.exists()) {
@@ -80,6 +96,7 @@ object Session {
                 "PI_CODING_AGENT_SESSION_DIR=${home.absolutePath}/.pi/agent/sessions",
                 "XDG_CACHE_HOME=${home.absolutePath}/.cache",
                 "PUBLIC_HOME=${getExternalFilesDir(null)?.absolutePath}",
+                "VCSPACE_TERMINAL_WORKDIR=${terminalWorkDir.absolutePath}",
                 "COLORTERM=truecolor",
                 "TERM=xterm-256color",
                 "LANG=C.UTF-8",
@@ -120,7 +137,12 @@ object Session {
 
             val shell = "/system/bin/sh"
             val prootCommand = prootCommandOverride ?: intent.getStringExtra(TerminalActivity.KEY_PROOT_COMMAND)
-            val prootWorkingDir = shellWorkingDir(workingDir)
+            val hostWorkingDir = if (workingDir.startsWith(terminalWorkDir.absolutePath)) {
+                workingDir
+            } else {
+                terminalWorkDir.absolutePath
+            }
+            val prootWorkingDir = shellWorkingDir(workingDir, terminalWorkDir)
             val command = if (prootCommand.isNullOrBlank()) {
                 "cd ${shellQuote(prootWorkingDir)} && exec /bin/bash"
             } else {
@@ -131,7 +153,7 @@ object Session {
 
             return TerminalSession(
                 shell,
-                workingDir,
+                hostWorkingDir,
                 args,
                 env.toTypedArray(),
                 TerminalEmulator.DEFAULT_TERMINAL_TRANSCRIPT_ROWS,

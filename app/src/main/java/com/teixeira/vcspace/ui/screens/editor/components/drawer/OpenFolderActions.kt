@@ -48,12 +48,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.documentfile.provider.DocumentFile
-import com.blankj.utilcode.util.UriUtils
 import com.teixeira.vcspace.PreferenceKeys
 import com.teixeira.vcspace.activities.Editor.LocalCommandPaletteManager
 import com.teixeira.vcspace.app.strings
 import com.teixeira.vcspace.extensions.toFile
 import com.teixeira.vcspace.file.DocumentFileWrapper
+import com.teixeira.vcspace.file.WorkspaceAccessManager
 import com.teixeira.vcspace.file.wrapFile
 import com.teixeira.vcspace.keyboard.model.Command.Companion.newCommand
 import com.teixeira.vcspace.preferences.defaultPrefs
@@ -73,13 +73,11 @@ fun OpenFolderActions(
     val openFolder = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
-        if (uri != null) DocumentFile.fromTreeUri(context, uri)?.let {
-            val file = if (DocumentFileWrapper.shouldWrap(uri)) {
-                DocumentFileWrapper(it)
-            } else {
-                UriUtils.uri2File(it.uri).wrapFile()
+        if (uri != null) {
+            WorkspaceAccessManager.rememberAuthorizedUri(context, uri)
+            DocumentFile.fromTreeUri(context, uri)?.let {
+                fileExplorerViewModel.openFolder(DocumentFileWrapper(it, true))
             }
-            fileExplorerViewModel.openFolder(file)
         }
     }
 
@@ -106,6 +104,24 @@ fun OpenFolderActions(
         }
 
         Button(
+            onClick = {
+                fileExplorerViewModel.openFolder(WorkspaceAccessManager.appInternalRoot().wrapFile())
+            },
+            shape = MaterialTheme.shapes.medium
+        ) {
+            Text(text = "App internal files")
+        }
+
+        Button(
+            onClick = {
+                fileExplorerViewModel.openFolder(WorkspaceAccessManager.terminalWorkingRoot(context).wrapFile())
+            },
+            shape = MaterialTheme.shapes.medium
+        ) {
+            Text(text = "Terminal workspace")
+        }
+
+        Button(
             onClick = { showRecentFoldersDialog = true },
             shape = MaterialTheme.shapes.medium
         ) {
@@ -117,8 +133,7 @@ fun OpenFolderActions(
         RecentFoldersDialog(
             onDismissRequest = { showRecentFoldersDialog = false },
             onOpenFolder = {
-                val treeUri = DocumentFile.fromFile(it).uri
-                fileExplorerViewModel.openFolder(UriUtils.uri2File(treeUri).wrapFile())
+                fileExplorerViewModel.openFolder(it.wrapFile())
                 showRecentFoldersDialog = false
             }
         )

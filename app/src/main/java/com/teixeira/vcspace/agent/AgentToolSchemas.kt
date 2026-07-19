@@ -125,6 +125,12 @@ object AgentToolSchemas {
         put("additionalProperties", false)
     }
 
+    val listRoots: JsonObject = buildJsonObject {
+        put("type", "object")
+        put("properties", buildJsonObject {})
+        put("additionalProperties", false)
+    }
+
     val listFiles: JsonObject = buildJsonObject {
         put("type", "object")
         put(

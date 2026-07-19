@@ -88,8 +88,11 @@ class TerminalService : Service() {
                 prootCommandOverride = prootCommand,
                 workingDirectoryOverride = workingDirectory
             ).also {
+                sessions[id]?.finishIfRunning()
                 sessions[id] = it
-                sessionList.add(id)
+                if (id !in sessionList) {
+                    sessionList.add(id)
+                }
                 updateNotification()
             }
         }
@@ -105,11 +108,7 @@ class TerminalService : Service() {
             if (currentSession.value == id) {
                 currentSession.value = sessionList.lastOrNull() ?: "main"
             }
-            if (sessions.isEmpty()) {
-                stopSelf()
-            } else {
-                updateNotification()
-            }
+            updateNotification()
         }
     }
 

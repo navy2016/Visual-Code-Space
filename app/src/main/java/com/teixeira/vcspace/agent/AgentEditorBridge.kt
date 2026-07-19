@@ -18,6 +18,8 @@ package com.teixeira.vcspace.agent
 import com.blankj.utilcode.util.ToastUtils
 import com.itsvks.monaco.MonacoEditor
 import com.teixeira.vcspace.activities.EditorActivity
+import com.teixeira.vcspace.file.FileAccessCheck
+import com.teixeira.vcspace.file.WorkspaceAccessManager
 import com.teixeira.vcspace.file.wrapFile
 import com.teixeira.vcspace.ui.screens.editor.EditorViewModel
 import com.teixeira.vcspace.ui.screens.editor.components.view.CodeEditorView
@@ -27,7 +29,6 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.lang.ref.WeakReference
 import kotlin.coroutines.resume
-import java.io.File as JFile
 
 object AgentEditorBridge {
     private var activityRef: WeakReference<EditorActivity>? = null
@@ -184,7 +185,15 @@ object AgentEditorBridge {
         val activity = activity()
             ?: return@withContext AgentToolResult.error("No active editor activity")
 
-        val file = JFile(path)
+        val file = when (val check = WorkspaceAccessManager.requireAllowedPath(
+            context = activity,
+            path = path,
+            workspaceRoot = getWorkspaceRootPath(),
+            terminalWorkingDirectory = WorkspaceAccessManager.terminalWorkingRoot(activity).absolutePath
+        )) {
+            is FileAccessCheck.Allowed -> check.file
+            is FileAccessCheck.Denied -> return@withContext AgentToolResult.error(check.reason)
+        }
         if (!file.exists() || !file.isFile) {
             return@withContext AgentToolResult.error("File does not exist: $path")
         }

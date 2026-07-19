@@ -83,7 +83,29 @@ write_node_launcher() {
     "export PI_CODING_AGENT_DIR='$AGENT_DIR'" \
     "export PI_CODING_AGENT_SESSION_DIR='$PI_CODING_AGENT_SESSION_DIR'" \
     "export XDG_CACHE_HOME='$XDG_CACHE_HOME'" \
-    "exec /usr/bin/node '$target' \"\$@\"" \
+    'node_bin="$(command -v node || true)"' \
+    'if [ -z "$node_bin" ] && [ -x /usr/bin/node ]; then node_bin=/usr/bin/node; fi' \
+    'if [ -z "$node_bin" ]; then echo "Node.js is not installed. Run Repair Pi." >&2; exit 127; fi' \
+    "exec \"\$node_bin\" '$target' \"\$@\"" \
+    > "$launcher"
+  chmod +x "$launcher"
+}
+
+write_pi_launcher() {
+  launcher="$1"
+  mkdir -p "$(dirname "$launcher")"
+  rm -f "$launcher"
+  printf '%s\n' \
+    '#!/bin/sh' \
+    'export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-/usr/lib:/lib}"' \
+    "export PI_CODING_AGENT_DIR='$AGENT_DIR'" \
+    "export PI_CODING_AGENT_SESSION_DIR='$PI_CODING_AGENT_SESSION_DIR'" \
+    "export XDG_CACHE_HOME='$XDG_CACHE_HOME'" \
+    'node_bin="$(command -v node || true)"' \
+    'if [ -z "$node_bin" ] && [ -x /usr/bin/node ]; then node_bin=/usr/bin/node; fi' \
+    "if [ -z \"\$node_bin\" ] && [ -x '$HOST_PREFIX/bin/vcspace-pi-manager' ]; then exec '$HOST_PREFIX/bin/vcspace-pi-manager' open \"\$@\"; fi" \
+    'if [ -z "$node_bin" ]; then echo "Node.js is not installed. Run Repair Pi." >&2; exit 127; fi' \
+    "exec \"\$node_bin\" '$PI_CLI' \"\$@\"" \
     > "$launcher"
   chmod +x "$launcher"
 }
@@ -162,8 +184,25 @@ install_npm_from_registry() {
 
 ensure_npm_ready() {
   prepare_host_dirs
+  node_bin="$(command -v node || true)"
+  if [ -z "$node_bin" ] && [ -x /usr/bin/node ]; then
+    node_bin=/usr/bin/node
+  fi
+  if [ -z "$node_bin" ]; then
+    log "Node.js is missing; installing base packages first..."
+    install_base_packages || return 1
+    node_bin="$(command -v node || true)"
+    if [ -z "$node_bin" ] && [ -x /usr/bin/node ]; then
+      node_bin=/usr/bin/node
+    fi
+  fi
+  if [ -z "$node_bin" ]; then
+    log "Node.js is unavailable after package install."
+    return 1
+  fi
+
   npm_cli="$(find_npm_cli)"
-  if [ -n "$npm_cli" ] && /usr/bin/node "$npm_cli" --version >/dev/null 2>&1; then
+  if [ -n "$npm_cli" ] && "$node_bin" "$npm_cli" --version >/dev/null 2>&1; then
     write_npm_launcher
     return 0
   fi
@@ -171,7 +210,7 @@ ensure_npm_ready() {
   log "npm CLI is missing or broken; installing standalone npm..."
   if install_npm_from_registry; then
     npm_cli="$(find_npm_cli)"
-    if [ -n "$npm_cli" ] && /usr/bin/node "$npm_cli" --version >/dev/null 2>&1; then
+    if [ -n "$npm_cli" ] && "$node_bin" "$npm_cli" --version >/dev/null 2>&1; then
       write_npm_launcher
       return 0
     fi
@@ -180,7 +219,7 @@ ensure_npm_ready() {
   log "npm CLI repair failed. Expected npm CLI: $NPM_CLI"
   if [ -n "$npm_cli" ]; then
     log "Found npm CLI candidate: $npm_cli"
-    /usr/bin/node "$npm_cli" --version || true
+    "$node_bin" "$npm_cli" --version || true
   fi
   return 1
 }
@@ -188,7 +227,15 @@ ensure_npm_ready() {
 run_npm() {
   npm_cli="$(find_npm_cli)"
   if [ -n "$npm_cli" ]; then
-    /usr/bin/node "$npm_cli" "$@"
+    node_bin="$(command -v node || true)"
+    if [ -z "$node_bin" ] && [ -x /usr/bin/node ]; then
+      node_bin=/usr/bin/node
+    fi
+    if [ -z "$node_bin" ]; then
+      log "Node.js is unavailable."
+      return 1
+    fi
+    "$node_bin" "$npm_cli" "$@"
   else
     log "npm is unavailable. Expected npm CLI: $NPM_CLI"
     return 1
@@ -204,13 +251,19 @@ install_pi_package() {
 
 install_pi_launcher() {
   if [ -f "$PI_CLI" ]; then
-    write_node_launcher "$HOST_PREFIX/bin/pi" "$PI_CLI"
-    write_node_launcher "/usr/local/bin/pi" "$PI_CLI"
+    write_pi_launcher "$HOST_PREFIX/bin/pi"
+    write_pi_launcher "/usr/local/bin/pi"
     return 0
   fi
 
   log "Pi CLI was not found after npm install. Expected Pi CLI: $PI_CLI"
   return 1
+}
+
+repair_launchers() {
+  prepare_host_dirs
+  write_npm_launcher || true
+  install_pi_launcher || true
 }
 
 mark_installed() {
@@ -266,11 +319,25 @@ repair_pi() {
 open_pi() {
   prepare_host_dirs
   if [ -f "$PI_CLI" ]; then
+    node_bin="$(command -v node || true)"
+    if [ -z "$node_bin" ] && [ -x /usr/bin/node ]; then
+      node_bin=/usr/bin/node
+    fi
+    if [ -z "$node_bin" ]; then
+      log "Node.js is missing; attempting package repair..."
+      install_base_packages || true
+      node_bin="$(command -v node || true)"
+      if [ -z "$node_bin" ] && [ -x /usr/bin/node ]; then
+        node_bin=/usr/bin/node
+      fi
+    fi
+    if [ -z "$node_bin" ]; then
+      log "Node.js is unavailable. Run Repair Pi."
+      return 1
+    fi
+    install_pi_launcher >/dev/null 2>&1 || true
     log "Starting Pi with Visual Code Space bridge..."
-    exec /usr/bin/node "$PI_CLI"
-  elif command -v pi >/dev/null 2>&1; then
-    log "Starting Pi with Visual Code Space bridge..."
-    exec pi
+    exec "$node_bin" "$PI_CLI"
   fi
 
   log "Pi is not installed. Run Install Pi from the command palette first."
@@ -283,11 +350,15 @@ smoke() {
   log "agent dir: $AGENT_DIR"
   install_base_packages || return 1
   ensure_npm_ready || return 1
-  /usr/bin/node --version
+  node_bin="$(command -v node || true)"
+  if [ -z "$node_bin" ] && [ -x /usr/bin/node ]; then
+    node_bin=/usr/bin/node
+  fi
+  "$node_bin" --version
   run_npm --version || return 1
   printf '{}\n' > "$AGENT_DIR/auth.json"
   printf 'export default function vcspaceSmoke() {}\n' > "$AGENT_DIR/extensions/vcspace-bridge.ts"
-  /usr/bin/node -e 'const fs = require("fs"); for (const p of [process.env.PI_CODING_AGENT_DIR, `${process.env.PI_CODING_AGENT_DIR}/auth.json`, `${process.env.PI_CODING_AGENT_DIR}/extensions/vcspace-bridge.ts`, `${process.env.PI_CODING_AGENT_DIR}/bin`]) { if (!fs.existsSync(p)) { console.error(`missing ${p}`); process.exit(1); } }'
+  "$node_bin" -e 'const fs = require("fs"); for (const p of [process.env.PI_CODING_AGENT_DIR, `${process.env.PI_CODING_AGENT_DIR}/auth.json`, `${process.env.PI_CODING_AGENT_DIR}/extensions/vcspace-bridge.ts`, `${process.env.PI_CODING_AGENT_DIR}/bin`]) { if (!fs.existsSync(p)) { console.error(`missing ${p}`); process.exit(1); } }'
   log "Pi manager smoke test passed."
 }
 
@@ -297,6 +368,7 @@ case "${1:-open}" in
   repair) repair_pi ;;
   open) open_pi ;;
   smoke) smoke ;;
+  repair-launchers) repair_launchers ;;
   *)
     echo "Usage: vcspace-pi-manager.sh {install|update|repair|open|smoke}"
     exit 2

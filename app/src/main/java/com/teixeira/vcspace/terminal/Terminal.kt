@@ -23,18 +23,25 @@ import android.view.View
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredWidth
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Menu
@@ -102,8 +109,9 @@ fun Terminal(modifier: Modifier = Modifier, terminalActivity: TerminalActivity) 
     val foregroundColor = MaterialTheme.colorScheme.onSurface.toArgb()
     val context = LocalContext.current
     val terminalFontSize = Settings.Terminal.rememberFontSize()
+    val terminalFontSizeValue = terminalFontSize.value.coerceIn(23f, 88f).toInt()
     val terminalOutputWidth = Settings.Terminal.rememberOutputWidthPercent()
-    val terminalOutputWidthFraction = (terminalOutputWidth.value / 100f).coerceIn(0.6f, 1f)
+    val terminalOutputWidthFraction = (terminalOutputWidth.value / 100f).coerceIn(0.5f, 2f)
 
     LaunchedEffect(Unit) {
         context.startService(Intent(context, TerminalService::class.java))
@@ -120,6 +128,8 @@ fun Terminal(modifier: Modifier = Modifier, terminalActivity: TerminalActivity) 
         val scope = rememberCoroutineScope()
         val configuration = LocalConfiguration.current
         val screenWidthDp = configuration.screenWidthDp
+        val terminalOutputWidthDp = (screenWidthDp * terminalOutputWidthFraction).dp
+        val terminalHorizontalScroll = rememberScrollState()
         val drawerWidth = (screenWidthDp * 0.84).dp
 
         var sessionPendingDelete by remember { mutableStateOf<String?>(null) }
@@ -267,71 +277,86 @@ fun Terminal(modifier: Modifier = Modifier, terminalActivity: TerminalActivity) 
                         }
                     )
                 }) { paddingValues ->
-                    Column(modifier = Modifier.padding(paddingValues)) {
-                        AndroidView(
-                            factory = { context ->
-                                TerminalView(context, null).apply {
-                                    terminalView = WeakReference(this)
-                                    val client = TerminalBackend(this, terminalActivity)
-                                    setTextSize(terminalFontSize.value.toInt())
-                                    setTerminalViewClient(client)
-                                    val service = terminalActivity.terminalBinder!!.service
-                                    val pendingCommand = terminalActivity.intent.getStringExtra(KEY_PROOT_COMMAND)
-                                    val pendingSessionId = if (pendingCommand.isNullOrBlank()) {
-                                        service.currentSession.value
-                                    } else {
-                                        generateUniqueSessionId(
-                                            service.sessionList,
-                                            if (terminalActivity.intent.getBooleanExtra(KEY_RUN_PI, false)) "pi" else "task"
-                                        )
-                                    }
-                                    val session = if (pendingCommand.isNullOrBlank()) {
-                                        terminalActivity.terminalBinder!!.getSession(pendingSessionId)
-                                            ?: terminalActivity.terminalBinder!!.createSession(
+                    Column(
+                        modifier = Modifier
+                            .padding(paddingValues)
+                            .windowInsetsPadding(WindowInsets.ime)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .horizontalScroll(terminalHorizontalScroll),
+                            contentAlignment = if (terminalOutputWidthFraction <= 1f) {
+                                Alignment.Center
+                            } else {
+                                Alignment.CenterStart
+                            }
+                        ) {
+                            AndroidView(
+                                factory = { context ->
+                                    TerminalView(context, null).apply {
+                                        terminalView = WeakReference(this)
+                                        val client = TerminalBackend(this, terminalActivity)
+                                        setTextSize(terminalFontSizeValue)
+                                        setTerminalViewClient(client)
+                                        val service = terminalActivity.terminalBinder!!.service
+                                        val pendingCommand = terminalActivity.intent.getStringExtra(KEY_PROOT_COMMAND)
+                                        val pendingSessionId = if (pendingCommand.isNullOrBlank()) {
+                                            service.currentSession.value
+                                        } else {
+                                            generateUniqueSessionId(
+                                                service.sessionList,
+                                                if (terminalActivity.intent.getBooleanExtra(KEY_RUN_PI, false)) "pi" else "task"
+                                            )
+                                        }
+                                        val session = if (pendingCommand.isNullOrBlank()) {
+                                            terminalActivity.terminalBinder!!.getSession(pendingSessionId)
+                                                ?: terminalActivity.terminalBinder!!.createSession(
+                                                    pendingSessionId,
+                                                    client,
+                                                    terminalActivity
+                                                )
+                                        } else {
+                                            terminalActivity.terminalBinder!!.createSession(
                                                 pendingSessionId,
                                                 client,
                                                 terminalActivity
                                             )
-                                    } else {
-                                        terminalActivity.terminalBinder!!.createSession(
-                                            pendingSessionId,
-                                            client,
-                                            terminalActivity
+                                        }
+                                        service.currentSession.value = pendingSessionId
+
+                                        session.updateTerminalSessionClient(client)
+                                        attachSession(session)
+                                        setTypeface(
+                                            Typeface.createFromAsset(
+                                                context.assets,
+                                                "fonts/JetBrainsMono-Regular.ttf"
+                                            )
                                         )
-                                    }
-                                    service.currentSession.value = pendingSessionId
 
-                                    session.updateTerminalSessionClient(client)
-                                    attachSession(session)
-                                    setTypeface(
-                                        Typeface.createFromAsset(
-                                            context.assets,
-                                            "fonts/JetBrainsMono-Regular.ttf"
-                                        )
-                                    )
+                                        post {
+                                            setBackgroundColor(backgroundColor)
+                                            keepScreenOn = true
+                                            requestFocus()
+                                            setFocusableInTouchMode(true)
 
-                                    post {
-                                        setBackgroundColor(backgroundColor)
-                                        keepScreenOn = true
-                                        requestFocus()
-                                        setFocusableInTouchMode(true)
-
-                                        mEmulator?.mColors?.mCurrentColors?.apply {
-                                            set(256, foregroundColor)
-                                            set(258, foregroundColor)
+                                            mEmulator?.mColors?.mCurrentColors?.apply {
+                                                set(256, foregroundColor)
+                                                set(258, foregroundColor)
+                                            }
                                         }
                                     }
-                                }
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth(terminalOutputWidthFraction)
-                                .weight(1f)
-                                .align(Alignment.CenterHorizontally),
-                            update = { terminalView ->
-                                terminalView.setTextSize(terminalFontSize.value.toInt())
-                                terminalView.onScreenUpdated()
-                            },
-                        )
+                                },
+                                modifier = Modifier
+                                    .requiredWidth(terminalOutputWidthDp)
+                                    .fillMaxHeight(),
+                                update = { terminalView ->
+                                    terminalView.setTextSize(terminalFontSizeValue)
+                                    TerminalScrollState.preserveUserScrollOnUpdate(terminalView)
+                                },
+                            )
+                        }
 
                         AndroidView(
                             factory = { context ->
@@ -535,7 +560,18 @@ private fun deleteSession(terminalActivity: TerminalActivity, sessionId: String)
     binder.terminateSession(sessionId)
 
     if (service.sessionList.isEmpty()) {
-        terminalActivity.finish()
+        val view = terminalView.get() ?: return
+        val client = TerminalBackend(view, terminalActivity)
+        val session = binder.createSession(
+            id = "main1",
+            client = client,
+            activity = terminalActivity
+        )
+        session.updateTerminalSessionClient(client)
+        view.attachSession(session)
+        view.setTerminalViewClient(client)
+        service.currentSession.value = "main1"
+        showShortToast(terminalActivity, "Deleted $sessionId")
         return
     }
 

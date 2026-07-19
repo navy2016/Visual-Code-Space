@@ -63,6 +63,22 @@ if [ ! -x "$START_SHELL" ]; then
     START_SHELL="/bin/sh"
 fi
 
+if [ -x "$PREFIX/bin/vcspace-pi-manager" ]; then
+    "$PREFIX/bin/vcspace-pi-manager" repair-launchers >/dev/null 2>&1 || true
+fi
+if [ -x "$PREFIX/bin/pi" ]; then
+    mkdir -p /usr/local/bin
+    ln -sf "$PREFIX/bin/pi" /usr/local/bin/pi 2>/dev/null || true
+fi
+if [ -x "$PREFIX/bin/npm" ]; then
+    mkdir -p /usr/local/bin
+    ln -sf "$PREFIX/bin/npm" /usr/local/bin/npm 2>/dev/null || true
+fi
+if [ -x "$PREFIX/bin/npx" ]; then
+    mkdir -p /usr/local/bin
+    ln -sf "$PREFIX/bin/npx" /usr/local/bin/npx 2>/dev/null || true
+fi
+
 #fix linker warning
 if [ ! -f /linkerconfig/ld.config.txt ]; then
     mkdir -p /linkerconfig

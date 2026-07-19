@@ -36,11 +36,11 @@ class TerminalBackend(
     val activity: TerminalActivity
 ) : TerminalViewClient, TerminalSessionClient {
 
-    private val minFontSize = 12f
-    private val maxFontSize = 48f
+    private val minFontSize = 23f
+    private val maxFontSize = 88f
 
     override fun onTextChanged(changedSession: TerminalSession) {
-        terminal.onScreenUpdated()
+        TerminalScrollState.preserveUserScrollOnUpdate(terminal)
     }
 
     override fun onTitleChanged(changedSession: TerminalSession) {}
@@ -120,7 +120,7 @@ class TerminalBackend(
     }
 
     override fun shouldEnforceCharBasedInput(): Boolean {
-        return false
+        return true
     }
 
     override fun shouldUseCtrlSpaceWorkaround(): Boolean {

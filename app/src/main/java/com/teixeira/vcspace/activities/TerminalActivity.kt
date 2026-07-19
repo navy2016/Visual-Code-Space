@@ -45,13 +45,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.blankj.utilcode.util.PathUtils
 import com.blankj.utilcode.util.ThreadUtils
 import com.blankj.utilcode.util.ToastUtils
 import com.teixeira.vcspace.app.strings
 import com.teixeira.vcspace.extensions.child
 import com.teixeira.vcspace.extensions.createFileIfNot
 import com.teixeira.vcspace.extensions.tmpDir
+import com.teixeira.vcspace.file.WorkspaceAccessManager
 import com.teixeira.vcspace.terminal.Terminal
 import com.teixeira.vcspace.terminal.alpineDir
 import com.teixeira.vcspace.terminal.appDataDir
@@ -67,6 +67,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.StandardCopyOption
 import java.util.concurrent.TimeUnit
 
@@ -92,9 +93,9 @@ class TerminalActivity : ComponentActivity() {
             if (extras != null && extras.containsKey(KEY_WORKING_DIRECTORY)) {
                 val directory = extras.getString(KEY_WORKING_DIRECTORY, null)
                 return if (directory != null && directory.trim().isNotEmpty()) directory
-                else PathUtils.getRootPathExternalFirst()
+                else WorkspaceAccessManager.terminalWorkingRoot(this).absolutePath
             }
-            return PathUtils.getRootPathExternalFirst()
+            return WorkspaceAccessManager.terminalWorkingRoot(this).absolutePath
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -168,7 +169,7 @@ class TerminalActivity : ComponentActivity() {
                     )
                 }
 
-                if (!isAlpineReady()) {
+                if (!hasUsableAlpineFiles()) {
                     filesToDownload.add(
                         DownloadFile(
                             url = if (abi.contains("x86_64")) {
@@ -363,31 +364,48 @@ class TerminalActivity : ComponentActivity() {
     }
 
     private fun runTarExtract(archive: File, destination: File) {
-        destination.mkdirs()
-        val process = Runtime.getRuntime()
-            .exec(arrayOf("tar", "-xf", archive.absolutePath, "-C", destination.absolutePath))
-        val exitCode = process.waitFor()
-        if (exitCode != 0) {
-            val error = process.errorStream.bufferedReader().use { it.readText() }
-            throw IllegalStateException("Failed to extract ${archive.name}: $error")
+        try {
+            com.teixeira.vcspace.terminal.TarGzExtractor.extract(archive, destination)
+        } catch (error: Exception) {
+            throw IllegalStateException("Failed to extract ${archive.name}: ${error.message}", error)
         }
     }
 
     private fun isTerminalSupportReady(): Boolean {
+        val proot = File(prefix, "bin/proot")
         val libtallocSo2 = File(prefix, "lib/libtalloc.so.2")
         val libtallocSo241 = File(prefix, "lib/libtalloc.so.2.4.1")
-        return libtallocSo2.exists() || libtallocSo241.exists()
+        return proot.exists() &&
+            libtallocSo2.exists() &&
+            libtallocSo2.length() > 1024 &&
+            libtallocSo241.exists()
     }
 
+    private fun alpineReadyMarker(): File = File(alpineDir, ".vcspace-rootfs-ready")
+
+    private fun existsNoFollow(file: File): Boolean =
+        Files.exists(file.toPath(), LinkOption.NOFOLLOW_LINKS)
+
+    private fun isExpectedSymlink(file: File, target: String): Boolean = runCatching {
+        Files.isSymbolicLink(file.toPath()) &&
+            Files.readSymbolicLink(file.toPath()).toString() == target
+    }.getOrDefault(false)
+
+    private fun hasUsableAlpineFiles(): Boolean =
+        existsNoFollow(File(alpineDir, "bin/busybox")) &&
+            existsNoFollow(File(alpineDir, "etc/apk")) &&
+            isExpectedSymlink(File(alpineDir, "bin/sh"), "/bin/busybox") &&
+            isExpectedSymlink(File(alpineDir, "usr/bin/yes"), "/bin/busybox")
+
     private fun isAlpineReady(): Boolean =
-        File(alpineDir, "bin/sh").exists() && File(alpineDir, "etc").exists()
+        alpineReadyMarker().exists() && hasUsableAlpineFiles()
 
     private fun ensureTallocLink() {
         val libtallocSo2 = File(prefix, "lib/libtalloc.so.2")
         val libtallocSo241 = File(prefix, "lib/libtalloc.so.2.4.1")
 
-        if (libtallocSo2.exists()) return
-        if (Files.isSymbolicLink(libtallocSo2.toPath())) {
+        if (libtallocSo2.exists() && libtallocSo2.length() > 1024) return
+        if (Files.isSymbolicLink(libtallocSo2.toPath()) || libtallocSo2.exists()) {
             Files.deleteIfExists(libtallocSo2.toPath())
         }
         if (!libtallocSo241.exists()) {
@@ -412,9 +430,26 @@ class TerminalActivity : ComponentActivity() {
         if (!isTerminalSupportReady()) {
             prefix.deleteRecursively()
         }
-        if (!isAlpineReady()) {
+        if (!hasUsableAlpineFiles()) {
             File(tmpDir, "alpine.tar.gz").delete()
             alpineDir.deleteRecursively()
+        }
+    }
+
+    private fun configureAlpineRootFs() {
+        with(alpineDir) {
+            child("etc/hostname").writeText(getString(strings.app_name))
+            child("etc/resolv.conf").also {
+                it.createFileIfNot()
+                it.writeText(nameserver)
+            }
+            child("etc/hosts").writeText(hosts)
+            child("etc/apk/repositories").also {
+                it.parentFile?.mkdirs()
+                it.createFileIfNot()
+                it.writeText(alpineRepositories)
+            }
+            alpineReadyMarker().writeText("ok\n")
         }
     }
 
@@ -423,19 +458,13 @@ class TerminalActivity : ComponentActivity() {
 
         if (isAlpineReady()) {
             onComplete()
+        } else if (hasUsableAlpineFiles()) {
+            configureAlpineRootFs()
+            onComplete()
         } else if (alpine.exists()) {
             runTarExtract(alpine, alpineDir)
             alpine.delete()
-            with(alpineDir) {
-                child("etc/hostname").writeText(getString(strings.app_name))
-                child("etc/resolv.conf").also { it.createFileIfNot();it.writeText(nameserver) }
-                child("etc/hosts").writeText(hosts)
-                child("etc/apk/repositories").also {
-                    it.parentFile?.mkdirs()
-                    it.createFileIfNot()
-                    it.writeText(alpineRepositories)
-                }
-            }
+            configureAlpineRootFs()
             onComplete()
         } else {
             throw IllegalStateException("Missing Alpine rootfs package: ${alpine.absolutePath}")
