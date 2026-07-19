@@ -180,7 +180,6 @@ dependencies {
     implementation(libs.android.tree.sitter)
     implementation(libs.tree.sitter.java)
 
-    implementation(libs.bsh)
     implementation(libs.org.eclipse.jgit)
     implementation(libs.org.eclipse.lsp4j)
     implementation(libs.org.eclipse.lsp4j.jsonrpc)

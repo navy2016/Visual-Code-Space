@@ -20,6 +20,7 @@ import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
+import com.vcspace.plugins.agent.AgentTool
 import com.vcspace.plugins.command.EditorCommand
 import com.vcspace.plugins.dialog.DialogButtonClickListener
 import com.vcspace.plugins.editor.Position
@@ -258,4 +259,16 @@ interface PluginContext {
      * Performs an HTTP GET request to the specified URL.
      */
     fun httpGet(url: String): HttpResponse
+
+    /**
+     * Registers a plugin-provided tool that AI agents such as Pi can call.
+     *
+     * @return the fully-qualified tool name exposed by Visual Code Space.
+     */
+    fun registerAgentTool(tool: AgentTool): String
+
+    /**
+     * Unregisters a previously registered AI-callable tool.
+     */
+    fun unregisterAgentTool(toolName: String)
 }

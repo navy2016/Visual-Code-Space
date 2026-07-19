@@ -13,27 +13,16 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.teixeira.vcspace.ui.screens
+package com.teixeira.vcspace.pi
 
-import kotlinx.serialization.Serializable
+object PiCommands {
+    private const val MANAGER = "\$PREFIX/bin/vcspace-pi-manager"
 
-@Serializable
-sealed class SettingScreens {
-    @Serializable
-    data object Default : SettingScreens()
+    val OPEN_PI: String = "$MANAGER open; exec /bin/bash"
 
-    @Serializable
-    data object General : SettingScreens()
+    val INSTALL_PI: String = "$MANAGER install; exec /bin/bash"
 
-    @Serializable
-    data object File : SettingScreens()
+    val UPDATE_PI: String = "$MANAGER update; exec /bin/bash"
 
-    @Serializable
-    data object Editor : SettingScreens()
-
-    @Serializable
-    data object Terminal : SettingScreens()
-
-    @Serializable
-    data object MonacoEditor : SettingScreens()
+    val REPAIR_PI: String = "$MANAGER repair; exec /bin/bash"
 }

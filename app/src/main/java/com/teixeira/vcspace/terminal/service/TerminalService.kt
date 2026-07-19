@@ -27,21 +27,50 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.app.NotificationCompat
 import com.teixeira.vcspace.activities.TerminalActivity
+import com.teixeira.vcspace.agent.AgentBridgeServer
+import com.teixeira.vcspace.agent.BuiltInAgentTools
 import com.teixeira.vcspace.app.drawables
 import com.teixeira.vcspace.extensions.makePluralIf
+import com.teixeira.vcspace.pi.PiExtensionInstaller
 import com.teixeira.vcspace.terminal.Session
 import com.termux.terminal.TerminalSession
 import com.termux.terminal.TerminalSessionClient
+import kotlinx.coroutines.runBlocking
 
 // https://github.com/Xed-Editor/Xed-Editor/blob/main/core/main/src/main/java/com/rk/xededitor/service/SessionService.kt
 class TerminalService : Service() {
     private val sessions = hashMapOf<String, TerminalSession>()
+    private val sessionWorkingDirectories = hashMapOf<String, String>()
+    private val sessionCommands = hashMapOf<String, String?>()
     val sessionList = mutableStateListOf<String>()
     var currentSession = mutableStateOf("main")
 
     @Suppress("PrivatePropertyName")
     private val ACTION_EXIT by lazy { "com.teixeira.vcspace.action.ACTION_EXIT" }
+
+    @Suppress("PrivatePropertyName")
+    private val ACTION_START_PI_BRIDGE by lazy { "com.teixeira.vcspace.action.ACTION_START_PI_BRIDGE" }
+
+    @Suppress("PrivatePropertyName")
+    private val ACTION_STOP_PI_BRIDGE by lazy { "com.teixeira.vcspace.action.ACTION_STOP_PI_BRIDGE" }
+
+    @Suppress("PrivatePropertyName")
+    private val ACTION_RESTART_PI_BRIDGE by lazy { "com.teixeira.vcspace.action.ACTION_RESTART_PI_BRIDGE" }
+
     private val notificationId = 46536745
+    private var bridgeServer: AgentBridgeServer? = null
+
+    val piBridgeStatus = mutableStateOf("Pi bridge inactive")
+    val lastPiBridgeError = mutableStateOf<String?>(null)
+
+    val piBridgeUrl: String?
+        get() = bridgeServer?.bridgeUrl
+
+    val piBridgeToken: String?
+        get() = bridgeServer?.token
+
+    val isPiBridgeActive: Boolean
+        get() = bridgeServer?.isAlive == true
 
     inner class TerminalBinder : Binder() {
         val service
@@ -50,12 +79,26 @@ class TerminalService : Service() {
         fun createSession(
             id: String,
             client: TerminalSessionClient,
-            activity: TerminalActivity
+            activity: TerminalActivity,
+            prootCommand: String? = null,
+            workingDirectory: String? = null
         ): TerminalSession {
-            return Session.createSession(activity, client, id).also {
-                sessions[id] = it
-                sessionList.add(id)
+            return Session.createSession(
+                activity = activity,
+                sessionClient = client,
+                sessionId = id,
+                prootCommandOverride = prootCommand,
+                workingDirectoryOverride = workingDirectory
+            ).also { session ->
+                val oldSession = sessions.put(id, session)
+                session.mSessionName = id
+                sessionWorkingDirectories[id] = workingDirectory ?: activity.workingDirectory
+                sessionCommands[id] = prootCommand
+                if (id !in sessionList) {
+                    sessionList.add(id)
+                }
                 updateNotification()
+                oldSession?.finishIfRunning()
             }
         }
 
@@ -63,15 +106,59 @@ class TerminalService : Service() {
             return sessions[id]
         }
 
-        fun terminateSession(id: String) {
-            sessions[id]?.finishIfRunning()
-            sessions.remove(id)
-            sessionList.remove(id)
-            if (sessions.isEmpty()) {
-                stopSelf()
-            } else {
-                updateNotification()
+        fun getSessionWorkingDirectory(id: String): String? {
+            return sessionWorkingDirectories[id]
+        }
+
+        fun getSessionCommand(id: String): String? {
+            return sessionCommands[id]
+        }
+
+        fun renameSession(oldId: String, newId: String): Boolean {
+            val normalized = newId.trim()
+            if (normalized.isBlank() || oldId !in sessions) return false
+            if (normalized == oldId) return true
+            if (normalized in sessions) return false
+
+            val session = sessions.remove(oldId) ?: return false
+            val workingDirectory = sessionWorkingDirectories.remove(oldId)
+            val command = sessionCommands.remove(oldId)
+            sessions[normalized] = session
+            if (workingDirectory != null) {
+                sessionWorkingDirectories[normalized] = workingDirectory
             }
+            sessionCommands[normalized] = command
+            val index = sessionList.indexOf(oldId)
+            if (index >= 0) {
+                sessionList[index] = normalized
+            }
+            if (currentSession.value == oldId) {
+                currentSession.value = normalized
+            }
+            session.mSessionName = normalized
+            updateNotification()
+            return true
+        }
+
+        fun pinSession(id: String): Boolean {
+            val index = sessionList.indexOf(id)
+            if (index <= 0) return index == 0
+            sessionList.removeAt(index)
+            sessionList.add(0, id)
+            updateNotification()
+            return true
+        }
+
+        fun terminateSession(id: String) {
+            val session = sessions.remove(id)
+            sessionWorkingDirectories.remove(id)
+            sessionCommands.remove(id)
+            sessionList.remove(id)
+            if (currentSession.value == id) {
+                currentSession.value = sessionList.lastOrNull() ?: "main"
+            }
+            session?.finishIfRunning()
+            updateNotification()
         }
     }
 
@@ -87,6 +174,7 @@ class TerminalService : Service() {
         createNotificationChannel()
         val notification = createNotification()
         startForeground(notificationId, notification)
+        startPiBridge()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -95,33 +183,132 @@ class TerminalService : Service() {
                 sessions.forEach { session -> session.value.finishIfRunning() }
                 stopSelf()
             }
+
+            ACTION_START_PI_BRIDGE -> ensurePiBridgeStarted()
+            ACTION_STOP_PI_BRIDGE -> stopPiBridge()
+            ACTION_RESTART_PI_BRIDGE -> restartPiBridge()
         }
-        return super.onStartCommand(intent, flags, startId)
+        return START_STICKY
     }
 
     override fun onDestroy() {
         sessions.forEach { session -> session.value.finishIfRunning() }
+        stopPiBridgeInternal()
         super.onDestroy()
     }
 
+    fun ensurePiBridgeStarted() {
+        startPiBridge()
+    }
+
+    fun restartPiBridge() {
+        stopPiBridgeInternal()
+        startPiBridge()
+    }
+
+    fun stopPiBridge() {
+        stopPiBridgeInternal()
+        updateNotification()
+    }
+
+    @Synchronized
+    private fun startPiBridge() {
+        if (bridgeServer?.isAlive == true) {
+            piBridgeStatus.value = "Pi bridge active on ${bridgeServer?.bridgeUrl.orEmpty()}"
+            updateNotification()
+            return
+        }
+
+        piBridgeStatus.value = "Starting Pi bridge..."
+        lastPiBridgeError.value = null
+        updateNotification()
+
+        runCatching {
+            runBlocking { BuiltInAgentTools.register(applicationContext) }
+            PiExtensionInstaller.installOrUpdate()
+            AgentBridgeServer(applicationContext).also { server ->
+                server.ensureStarted()
+                bridgeServer = server
+            }
+        }.onSuccess {
+            piBridgeStatus.value = "Pi bridge active on ${bridgeServer?.bridgeUrl.orEmpty()}"
+            updateNotification()
+        }.onFailure {
+            bridgeServer = null
+            lastPiBridgeError.value = it.message
+            piBridgeStatus.value = "Pi bridge failed: ${it.message ?: it::class.java.simpleName}"
+            updateNotification()
+            it.printStackTrace()
+        }
+    }
+
+    @Synchronized
+    private fun stopPiBridgeInternal() {
+        bridgeServer?.let { server ->
+            runCatching {
+                server.closeAllConnections()
+                server.stop()
+            }
+        }
+        bridgeServer = null
+        piBridgeStatus.value = "Pi bridge inactive"
+    }
+
     private fun createNotification(): Notification {
-        val intent = Intent(this, TerminalActivity::class.java)
+        val intent = Intent(this, TerminalActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_NEW_TASK
+        }
         val pendingIntent = PendingIntent.getActivity(
-            this, 0, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            this,
+            notificationId,
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val bridgeAction = if (isPiBridgeActive) ACTION_STOP_PI_BRIDGE else ACTION_START_PI_BRIDGE
+        val bridgeActionText = if (isPiBridgeActive) "Stop Pi Bridge" else "Start Pi Bridge"
+        val bridgeActionIntent = Intent(this, TerminalService::class.java).apply { action = bridgeAction }
+        val bridgeActionPendingIntent = PendingIntent.getService(
+            this,
+            notificationId + 1,
+            bridgeActionIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val restartBridgeIntent = Intent(this, TerminalService::class.java).apply {
+            action = ACTION_RESTART_PI_BRIDGE
+        }
+        val restartBridgePendingIntent = PendingIntent.getService(
+            this,
+            notificationId + 2,
+            restartBridgeIntent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         val exitIntent = Intent(this, TerminalService::class.java).apply { action = ACTION_EXIT }
         val exitPendingIntent = PendingIntent.getService(
             this,
-            notificationId,
+            notificationId + 3,
             exitIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Visual Code Space")
             .setContentText(getNotificationContentText())
             .setSmallIcon(drawables.terminal)
             .setContentIntent(pendingIntent)
+            .addAction(
+                NotificationCompat.Action.Builder(
+                    null,
+                    bridgeActionText,
+                    bridgeActionPendingIntent
+                ).build()
+            )
+            .addAction(
+                NotificationCompat.Action.Builder(
+                    null,
+                    "Restart Bridge",
+                    restartBridgePendingIntent
+                ).build()
+            )
             .addAction(
                 NotificationCompat.Action.Builder(
                     null,
@@ -130,7 +317,8 @@ class TerminalService : Service() {
                 ).build()
             )
             .setOngoing(true)
-            .build()
+
+        return builder.build()
     }
 
     private val CHANNEL_ID = "session_service_channel"
@@ -153,6 +341,13 @@ class TerminalService : Service() {
 
     private fun getNotificationContentText(): String {
         val count = sessions.size
-        return "$count${" session" makePluralIf (count > 1)} running"
+        val sessionText = "$count${" session" makePluralIf (count > 1)} running"
+        val bridgeText = when {
+            isPiBridgeActive -> "Pi bridge active"
+            piBridgeStatus.value.startsWith("Pi bridge failed") -> "Pi bridge failed"
+            piBridgeStatus.value.startsWith("Starting") -> "Pi bridge starting"
+            else -> "Pi bridge inactive"
+        }
+        return "$sessionText · $bridgeText"
     }
 }

@@ -1,3 +1,32 @@
-prootArgs="-r $ALPINE -0 -b /dev/ -b /sys/ -b /proc/ -b /sdcard -b /storage -b $PREFIX -w /home --kill-on-exit --link2symlink"
+mkdir -p "$ALPINE/workspace"
 
-exec $PROOT $prootArgs /bin/sh $PREFIX/bin/init "$@"
+if [ -n "$VCSPACE_TERMINAL_WORKDIR" ] && [ -d "$VCSPACE_TERMINAL_WORKDIR" ]; then
+    exec "$PROOT" \
+        -r "$ALPINE" \
+        -0 \
+        -b /dev/ \
+        -b /sys/ \
+        -b /proc/ \
+        -b "$PREFIX" \
+        -b "$HOME" \
+        -b "$HOME:/home" \
+        -b "$VCSPACE_TERMINAL_WORKDIR:/workspace" \
+        -w /home \
+        --kill-on-exit \
+        --link2symlink \
+        /bin/sh "$PREFIX/bin/init" "$@"
+else
+    exec "$PROOT" \
+        -r "$ALPINE" \
+        -0 \
+        -b /dev/ \
+        -b /sys/ \
+        -b /proc/ \
+        -b "$PREFIX" \
+        -b "$HOME" \
+        -b "$HOME:/home" \
+        -w /home \
+        --kill-on-exit \
+        --link2symlink \
+        /bin/sh "$PREFIX/bin/init" "$@"
+fi

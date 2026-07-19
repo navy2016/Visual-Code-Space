@@ -34,6 +34,7 @@ import androidx.core.content.edit
 import androidx.lifecycle.lifecycleScope
 import com.itsvks.monaco.MonacoEditor
 import com.teixeira.vcspace.activities.EditorActivity
+import com.teixeira.vcspace.agent.PluginAgentToolRegistry
 import com.teixeira.vcspace.app.rootView
 import com.teixeira.vcspace.core.EventManager
 import com.teixeira.vcspace.core.MenuManager
@@ -50,6 +51,7 @@ import com.teixeira.vcspace.ui.screens.editor.components.view.CodeEditorView
 import com.teixeira.vcspace.utils.runOnUiThread
 import com.vcspace.plugins.Editor
 import com.vcspace.plugins.PluginContext
+import com.vcspace.plugins.agent.AgentTool
 import com.vcspace.plugins.Workspace
 import com.vcspace.plugins.command.EditorCommand
 import com.vcspace.plugins.dialog.DialogButtonClickListener
@@ -65,6 +67,7 @@ import com.vcspace.plugins.panel.ViewUpdater
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -75,7 +78,8 @@ import kotlin.math.max
 class PluginContextImpl(
     editorActivity: EditorActivity,
     editorViewModel: EditorViewModel,
-    private val compositionContext: CompositionContext
+    private val compositionContext: CompositionContext,
+    private val pluginId: String = "unknown"
 ) : PluginContext {
     override val appContext: Context = editorActivity
     override val editor: Editor
@@ -231,6 +235,16 @@ class PluginContextImpl(
                 body = "",
                 error = e.message
             )
+        }
+    }
+
+    override fun registerAgentTool(tool: AgentTool): String = runBlocking {
+        PluginAgentToolRegistry.register(pluginId, tool)
+    }
+
+    override fun unregisterAgentTool(toolName: String) {
+        runBlocking {
+            PluginAgentToolRegistry.unregister(toolName)
         }
     }
 

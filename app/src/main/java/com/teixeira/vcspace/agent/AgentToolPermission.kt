@@ -13,27 +13,17 @@
  * If not, see <https://www.gnu.org/licenses/>.
  */
 
-package com.teixeira.vcspace.ui.screens
+package com.teixeira.vcspace.agent
 
-import kotlinx.serialization.Serializable
-
-@Serializable
-sealed class SettingScreens {
-    @Serializable
-    data object Default : SettingScreens()
-
-    @Serializable
-    data object General : SettingScreens()
-
-    @Serializable
-    data object File : SettingScreens()
-
-    @Serializable
-    data object Editor : SettingScreens()
-
-    @Serializable
-    data object Terminal : SettingScreens()
-
-    @Serializable
-    data object MonacoEditor : SettingScreens()
+enum class AgentToolPermission {
+    READ_EDITOR,
+    WRITE_EDITOR,
+    READ_WORKSPACE,
+    WRITE_WORKSPACE,
+    READ_PLUGIN,
+    MANAGE_EDITOR,
+    RUN_TERMINAL,
+    NETWORK,
+    UI,
+    PLUGIN
 }

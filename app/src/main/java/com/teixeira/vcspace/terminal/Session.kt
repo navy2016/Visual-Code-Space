@@ -18,6 +18,8 @@ package com.teixeira.vcspace.terminal
 import com.teixeira.vcspace.activities.TerminalActivity
 import com.teixeira.vcspace.extensions.child
 import com.teixeira.vcspace.extensions.tmpDir
+import com.teixeira.vcspace.file.FileAccessCheck
+import com.teixeira.vcspace.file.WorkspaceAccessManager
 import com.termux.terminal.TerminalEmulator
 import com.termux.terminal.TerminalSession
 import com.termux.terminal.TerminalSessionClient
@@ -25,10 +27,20 @@ import java.io.File
 
 // https://github.com/RohitKushvaha01/ReTerminal/blob/main/app/src/main/java/com/rk/terminal/terminal/MkSession.kt
 object Session {
+    private fun shellQuote(value: String): String = "'${value.replace("'", "'\\''")}'"
+
+    private fun shellWorkingDir(path: String, terminalWorkDir: File): String = when {
+        path.startsWith(terminalWorkDir.absolutePath) -> "/workspace" + path.removePrefix(terminalWorkDir.absolutePath)
+        path == home.absolutePath -> "/home"
+        else -> "/workspace"
+    }
+
     fun createSession(
         activity: TerminalActivity,
         sessionClient: TerminalSessionClient,
-        sessionId: String
+        sessionId: String,
+        prootCommandOverride: String? = null,
+        workingDirectoryOverride: String? = null
     ): TerminalSession {
         with(activity) {
             val envVariables = mapOf(
@@ -43,12 +55,30 @@ object Session {
                 "EXTERNAL_STORAGE" to System.getenv("EXTERNAL_STORAGE")
             )
 
-            val workingDir = if (intent.hasExtra("cwd")) {
+            val workingDir = if (!workingDirectoryOverride.isNullOrBlank()) {
+                workingDirectoryOverride
+            } else if (intent.hasExtra(TerminalActivity.KEY_WORKING_DIRECTORY)) {
+                intent.getStringExtra(TerminalActivity.KEY_WORKING_DIRECTORY).toString()
+            } else if (intent.hasExtra("cwd")) {
                 intent.getStringExtra("cwd").toString()
             } else {
                 home.absolutePath
             }
 
+            val defaultTerminalWorkDir = WorkspaceAccessManager.terminalWorkingRoot(activity)
+            val requestedTerminalWorkDir = if (workingDir != home.absolutePath) {
+                when (val check = WorkspaceAccessManager.requireAllowedPath(
+                    context = activity,
+                    path = workingDir,
+                    terminalWorkingDirectory = defaultTerminalWorkDir.absolutePath
+                )) {
+                    is FileAccessCheck.Allowed -> check.file.takeIf { it.isDirectory && it.canRead() }
+                    is FileAccessCheck.Denied -> null
+                }
+            } else {
+                null
+            }
+            val terminalWorkDir = requestedTerminalWorkDir ?: defaultTerminalWorkDir
             val tmpDir = File(activity.tmpDir, "terminal/$sessionId")
 
             if (tmpDir.exists()) {
@@ -61,14 +91,22 @@ object Session {
             val env = mutableListOf(
                 "PROOT_TMP_DIR=${tmpDir.absolutePath}",
                 "HOME=${home.absolutePath}",
+                "VCSPACE_HOME=${home.absolutePath}",
+                "PI_CODING_AGENT_DIR=${home.absolutePath}/.pi/agent",
+                "PI_CODING_AGENT_SESSION_DIR=${home.absolutePath}/.pi/agent/sessions",
+                "XDG_CACHE_HOME=${home.absolutePath}/.cache",
                 "PUBLIC_HOME=${getExternalFilesDir(null)?.absolutePath}",
+                "VCSPACE_TERMINAL_WORKDIR=${terminalWorkDir.absolutePath}",
                 "COLORTERM=truecolor",
                 "TERM=xterm-256color",
                 "LANG=C.UTF-8",
                 "PREFIX=${prefix.absolutePath}",
                 "LD_LIBRARY_PATH=${lib.absolutePath}",
                 "ALPINE=${alpineDir.absolutePath}",
+                "APK_REPOSITORY_BASE=https://mirrors.aliyun.com/alpine/v3.22",
                 "LINKER=${Executor.linker}",
+                "VCSPACE_BRIDGE_URL=${activity.terminalBinder?.service?.piBridgeUrl.orEmpty()}",
+                "VCSPACE_BRIDGE_TOKEN=${activity.terminalBinder?.service?.piBridgeToken.orEmpty()}",
                 "PROOT=${
                     File(filesDir, "proot").apply {
                         if (exists().not()) {
@@ -86,17 +124,36 @@ object Session {
             val initHost = bin.child("init-host").apply {
                 writeText(
                     assets.open("terminal/init-host.sh").bufferedReader().use { it.readText() })
+                setExecutable(true)
             }
             bin.child("init").apply {
                 writeText(assets.open("terminal/init.sh").bufferedReader().use { it.readText() })
+                setExecutable(true)
+            }
+            bin.child("vcspace-pi-manager").apply {
+                writeText(assets.open("terminal/vcspace-pi-manager.sh").bufferedReader().use { it.readText() })
+                setExecutable(true)
             }
 
             val shell = "/system/bin/sh"
-            val args = arrayOf("-c", initHost.absolutePath)
+            val prootCommand = prootCommandOverride ?: intent.getStringExtra(TerminalActivity.KEY_PROOT_COMMAND)
+            val hostWorkingDir = if (workingDir.startsWith(terminalWorkDir.absolutePath)) {
+                workingDir
+            } else {
+                terminalWorkDir.absolutePath
+            }
+            val prootWorkingDir = shellWorkingDir(workingDir, terminalWorkDir)
+            val command = if (prootCommand.isNullOrBlank()) {
+                "cd ${shellQuote(prootWorkingDir)} && exec /bin/bash"
+            } else {
+                "cd ${shellQuote(prootWorkingDir)} && $prootCommand"
+            }
+            intent.removeExtra(TerminalActivity.KEY_PROOT_COMMAND)
+            val args = arrayOf(shell, initHost.absolutePath, command)
 
             return TerminalSession(
                 shell,
-                workingDir,
+                hostWorkingDir,
                 args,
                 env.toTypedArray(),
                 TerminalEmulator.DEFAULT_TERMINAL_TRANSCRIPT_ROWS,

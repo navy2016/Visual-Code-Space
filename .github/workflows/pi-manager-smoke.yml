@@ -1,0 +1,64 @@
+name: Pi Manager Smoke
+
+on:
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'app/src/main/assets/terminal/init.sh'
+      - 'app/src/main/assets/terminal/init-host.sh'
+      - 'app/src/main/assets/terminal/vcspace-pi-manager.sh'
+      - 'app/src/main/java/com/teixeira/vcspace/activities/TerminalActivity.kt'
+      - 'app/src/main/java/com/teixeira/vcspace/terminal/TarGzExtractor.kt'
+      - '.github/workflows/pi-manager-smoke.yml'
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    name: Alpine Pi manager smoke (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: aarch64
+            platform: linux/arm64
+          - arch: x86_64
+            platform: linux/amd64
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        if: matrix.arch == 'aarch64'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Alpine minirootfs symlink layout smoke
+        if: matrix.arch == 'aarch64'
+        run: |
+          curl -fsSL https://mirrors.aliyun.com/alpine/v3.22/releases/aarch64/alpine-minirootfs-3.22.1-aarch64.tar.gz -o /tmp/alpine-aarch64.tar.gz
+          tar -tvzf /tmp/alpine-aarch64.tar.gz | grep -F './usr/bin/yes -> /bin/busybox'
+          tar -tvzf /tmp/alpine-aarch64.tar.gz | grep -F './bin/sh -> /bin/busybox'
+
+      - name: Smoke test Pi manager in Alpine with Android-like bind paths
+        run: |
+          rm -rf "$PWD/.tmp/vcspace-files-${{ matrix.arch }}"
+          mkdir -p "$PWD/.tmp/vcspace-files-${{ matrix.arch }}/usr"
+          docker run --rm --platform ${{ matrix.platform }} \
+            -e PREFIX=/mnt/vcspace-files/usr \
+            -e APK_REPOSITORY_BASE=https://mirrors.aliyun.com/alpine/v3.22 \
+            -v "$PWD/.tmp/vcspace-files-${{ matrix.arch }}:/mnt/vcspace-files" \
+            -v "$PWD/app/src/main/assets/terminal/vcspace-pi-manager.sh:/usr/bin/vcspace-pi-manager:ro" \
+            alpine:3.22 \
+            /bin/sh -lc 'cp /usr/bin/vcspace-pi-manager /tmp/vcspace-pi-manager && chmod +x /tmp/vcspace-pi-manager && /tmp/vcspace-pi-manager smoke'
+
+      - name: Pi runtime startup smoke in Alpine arm64
+        if: matrix.arch == 'aarch64'
+        timeout-minutes: 10
+        run: |
+          docker run --rm --platform ${{ matrix.platform }} \
+            -e PREFIX=/mnt/vcspace-files/usr \
+            -e APK_REPOSITORY_BASE=https://mirrors.aliyun.com/alpine/v3.22 \
+            -v "$PWD/.tmp/vcspace-files-${{ matrix.arch }}:/mnt/vcspace-files" \
+            -v "$PWD/app/src/main/assets/terminal/vcspace-pi-manager.sh:/usr/bin/vcspace-pi-manager:ro" \
+            alpine:3.22 \
+            /bin/sh -lc 'cp /usr/bin/vcspace-pi-manager /tmp/vcspace-pi-manager && chmod +x /tmp/vcspace-pi-manager && /tmp/vcspace-pi-manager install && timeout 20s "$PREFIX/bin/pi" --offline --no-session --no-tools </dev/null'

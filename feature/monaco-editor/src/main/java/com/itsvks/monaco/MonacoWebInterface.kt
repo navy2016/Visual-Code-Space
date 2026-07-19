@@ -38,6 +38,7 @@ class MonacoWebInterface(private val editor: MonacoEditor) {
 
     @JavascriptInterface
     fun onTextChanged(content: String) {
+        value = content
         editor.onContentChange(content)
     }
 
