@@ -37,7 +37,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.calculateBottomPadding
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -351,10 +350,7 @@ fun Terminal(modifier: Modifier = Modifier, terminalActivity: TerminalActivity) 
                     val virtualKeysHeight = 75.dp
                     val virtualKeysHeightPx = with(density) { virtualKeysHeight.toPx().toInt() }
                     val imeBottomPx = WindowInsets.ime.getBottom(density)
-                    val scaffoldBottomPaddingPx = with(density) {
-                        paddingValues.calculateBottomPadding().toPx().toInt()
-                    }
-                    val effectiveImeBottomPx = (imeBottomPx - scaffoldBottomPaddingPx).coerceAtLeast(0)
+                    val effectiveImeBottomPx = imeBottomPx.coerceAtLeast(0)
                     val imeVisible = effectiveImeBottomPx > virtualKeysHeightPx / 2
                     val imeOffsetPx by animateIntAsState(
                         targetValue = if (imeVisible) {
