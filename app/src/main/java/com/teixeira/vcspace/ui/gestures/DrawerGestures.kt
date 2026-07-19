@@ -45,11 +45,8 @@ fun Modifier.openDrawerOnSwipe(
                     offset.x > ignoredSystemEdgePx &&
                     offset.x < size.width * startZoneFraction
             },
-            onHorizontalDrag = { change, dragAmount ->
+            onHorizontalDrag = { _, dragAmount ->
                 if (!tracking) return@detectHorizontalDragGestures
-                if (kotlin.math.abs(dragAmount) > 0f) {
-                    change.consume()
-                }
                 draggedX += dragAmount
                 if (draggedX > openThresholdPx) {
                     tracking = false

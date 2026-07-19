@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.calculateBottomPadding
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -78,6 +79,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -328,7 +330,10 @@ fun Terminal(modifier: Modifier = Modifier, terminalActivity: TerminalActivity) 
             },
             content = {
                 Scaffold(
-                    modifier = Modifier.openDrawerOnSwipe(drawerState = drawerState),
+                    modifier = Modifier.openDrawerOnSwipe(
+                        drawerState = drawerState,
+                        startZoneFraction = 0.38f
+                    ),
                     topBar = {
                         TopAppBar(
                             title = { Text(text = "Terminal") },
@@ -343,23 +348,44 @@ fun Terminal(modifier: Modifier = Modifier, terminalActivity: TerminalActivity) 
                     }
                 ) { paddingValues ->
                     val density = LocalDensity.current
+                    val virtualKeysHeight = 75.dp
+                    val virtualKeysHeightPx = with(density) { virtualKeysHeight.toPx().toInt() }
                     val imeBottomPx = WindowInsets.ime.getBottom(density)
+                    val scaffoldBottomPaddingPx = with(density) {
+                        paddingValues.calculateBottomPadding().toPx().toInt()
+                    }
+                    val effectiveImeBottomPx = (imeBottomPx - scaffoldBottomPaddingPx).coerceAtLeast(0)
+                    val imeVisible = effectiveImeBottomPx > virtualKeysHeightPx / 2
                     val imeOffsetPx by animateIntAsState(
-                        targetValue = -imeBottomPx,
+                        targetValue = if (imeVisible) {
+                            -(effectiveImeBottomPx - virtualKeysHeightPx).coerceAtLeast(0)
+                        } else {
+                            0
+                        },
                         animationSpec = tween(durationMillis = 220),
                         label = "terminalImeOffset"
                     )
+                    val terminalHorizontalModifier = if (terminalOutputWidthFraction > 1f) {
+                        Modifier.horizontalScroll(terminalHorizontalScroll)
+                    } else {
+                        Modifier
+                    }
+
+                    LaunchedEffect(imeVisible) {
+                        terminalView.get()?.postInvalidateOnAnimation()
+                    }
 
                     Column(
                         modifier = Modifier
                             .padding(paddingValues)
+                            .fillMaxSize()
                             .offset { IntOffset(0, imeOffsetPx) }
                     ) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1f)
-                                .horizontalScroll(terminalHorizontalScroll),
+                                .then(terminalHorizontalModifier),
                             contentAlignment = if (terminalOutputWidthFraction <= 1f) {
                                 Alignment.Center
                             } else {
@@ -450,7 +476,8 @@ fun Terminal(modifier: Modifier = Modifier, terminalActivity: TerminalActivity) 
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(75.dp)
+                                .height(virtualKeysHeight)
+                                .alpha(if (imeVisible) 0f else 1f)
                         )
                     }
                 }

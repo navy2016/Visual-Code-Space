@@ -39,7 +39,9 @@ object TerminalScrollState {
         val restoredTopRow = (previousTopRow - scrollCounter).coerceIn(-rowsInHistory, 0)
 
         runCatching {
-            topRowField.setInt(terminal, restoredTopRow)
+            if (restoredTopRow != previousTopRow) {
+                topRowField.setInt(terminal, restoredTopRow)
+            }
             emulator.clearScrollCounter()
             terminal.postInvalidateOnAnimation()
         }.onFailure {
